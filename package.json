@@ -103,5 +103,10 @@
   },
   "prisma": {
     "seed": "ts-node --project tsconfig.json prisma/seed.ts"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3"
+    ]
   }
 }

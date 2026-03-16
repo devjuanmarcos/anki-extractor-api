@@ -5,9 +5,14 @@ import {
   Injectable,
   InternalServerErrorException,
   Logger,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { PrismaService } from '../../common/services/prisma.service';
 import { config } from '../../config/config';
+import {
+  AnkiPackageService,
+  InvalidAnkiPackageError,
+} from './anki-package.service';
 import { CreateImportDto } from './dto/create-import.dto';
 import { ImportEntity } from './entities/import.entity';
 import { createImportSchema } from './schemas/import.schema';
@@ -16,7 +21,10 @@ import { createImportSchema } from './schemas/import.schema';
 export class ImportsService {
   private readonly logger = new Logger(ImportsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ankiPackageService: AnkiPackageService,
+  ) {}
 
   async create(rawDto: CreateImportDto): Promise<ImportEntity> {
     await this.ensureStorageRoots();
@@ -40,10 +48,16 @@ export class ImportsService {
       const workspacePath = this.getWorkspacePath(importId);
       await mkdir(workspacePath, { recursive: true });
       await rename(dto.temporaryFilePath, this.getSourceArchivePath(importId));
+      await this.ankiPackageService.prepareWorkspace(importId);
 
       return ImportEntity.fromRecord(createdImport);
     } catch (error) {
       if (importId) {
+        if (error instanceof InvalidAnkiPackageError) {
+          await this.failCreatedImport(importId, error.message);
+          throw new UnprocessableEntityException(error.message);
+        }
+
         await this.rollbackCreatedImport(importId);
       }
 
@@ -98,6 +112,22 @@ export class ImportsService {
   private async rollbackCreatedImport(importId: string): Promise<void> {
     await Promise.allSettled([
       this.prisma.import.delete({ where: { id: importId } }),
+      this.safeRemovePath(this.getWorkspacePath(importId)),
+    ]);
+  }
+
+  private async failCreatedImport(
+    importId: string,
+    failureReason: string,
+  ): Promise<void> {
+    await Promise.allSettled([
+      this.prisma.import.update({
+        where: { id: importId },
+        data: {
+          status: 'FAILED',
+          failureReason,
+        },
+      }),
       this.safeRemovePath(this.getWorkspacePath(importId)),
     ]);
   }
