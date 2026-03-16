@@ -273,7 +273,7 @@ describe('Imports API (e2e)', () => {
     ).toBe(true);
   });
 
-  it('lists imports and decks, returns detail payloads, and deletes an import with cleanup', async () => {
+  it('lists imports, decks, notes, cards, and media, then deletes an import with cleanup', async () => {
     const fileContents = await createApkgBuffer();
     const server = app.getHttpServer() as Parameters<typeof request>[0];
 
@@ -372,6 +372,302 @@ describe('Imports API (e2e)', () => {
       cardsCount: 2,
     });
 
+    const notesResponse = await request(server)
+      .get(
+        `/api/v1/imports/${createdImport.importId}/notes?page=1&limit=10&deckId=${deckId}&tags=anki,imported`,
+      )
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+
+    const notesListBody = notesResponse.body as unknown as {
+      items: Array<{
+        noteId: string;
+        importId: string;
+        ankiNoteId: string;
+        tags: string[];
+        model: {
+          ankiModelId: string;
+          name: string;
+        };
+        fieldPreviews: Array<{
+          name: string;
+          mediaReferencesCount: number;
+        }>;
+        cardsCount: number;
+      }>;
+      page: number;
+      limit: number;
+      totalItems: number;
+      totalPages: number;
+    };
+
+    expect(notesListBody).toMatchObject({
+      page: 1,
+      limit: 10,
+      totalItems: 1,
+      totalPages: 1,
+    });
+    expect(notesListBody.items[0]).toMatchObject({
+      importId: createdImport.importId,
+      ankiNoteId: '1',
+      tags: ['anki', 'imported'],
+      model: {
+        ankiModelId: '20',
+        name: 'Basic (and reversed card)',
+      },
+      cardsCount: 2,
+    });
+    expect(notesListBody.items[0]?.fieldPreviews).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'Front',
+          mediaReferencesCount: 1,
+        }),
+        expect.objectContaining({
+          name: 'Back',
+          mediaReferencesCount: 0,
+        }),
+        expect.objectContaining({
+          name: 'Audio',
+          mediaReferencesCount: 1,
+        }),
+      ]),
+    );
+
+    const noteId = notesListBody.items[0].noteId;
+
+    const noteResponse = await request(server)
+      .get(`/api/v1/notes/${noteId}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+
+    expect(noteResponse.body).toMatchObject({
+      noteId,
+      importId: createdImport.importId,
+      ankiNoteId: '1',
+      tags: ['anki', 'imported'],
+      model: {
+        ankiModelId: '20',
+        name: 'Basic (and reversed card)',
+      },
+      fields: {
+        Front: {
+          value: 'Front text <img src="front.png">',
+          mediaReferences: [{ type: 'IMAGE', reference: 'front.png' }],
+        },
+        Back: {
+          value: 'Back text with <b>HTML</b>',
+          mediaReferences: [],
+        },
+        Audio: {
+          value: '[sound:audio.mp3]',
+          mediaReferences: [{ type: 'AUDIO', reference: 'audio.mp3' }],
+        },
+      },
+      cards: [
+        {
+          ankiCardId: '10',
+          deck: {
+            deckId,
+            ankiDeckId: '200',
+            name: 'English::Vocabulary::Advanced',
+          },
+        },
+        {
+          ankiCardId: '11',
+          deck: {
+            deckId,
+            ankiDeckId: '200',
+            name: 'English::Vocabulary::Advanced',
+          },
+        },
+      ],
+    });
+
+    const cardsResponse = await request(server)
+      .get(
+        `/api/v1/imports/${createdImport.importId}/cards?deckId=${deckId}&page=1&limit=20`,
+      )
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+
+    const cardsListBody = cardsResponse.body as unknown as {
+      items: Array<{
+        cardId: string;
+        importId: string;
+        ankiCardId: string;
+        deck: {
+          deckId: string;
+          ankiDeckId: string;
+          name: string;
+        };
+        note: {
+          noteId: string;
+          ankiNoteId: string;
+          tags: string[];
+          model: {
+            ankiModelId: string;
+            name: string;
+          };
+          fieldPreviews: Array<{
+            name: string;
+            mediaReferencesCount: number;
+          }>;
+        };
+      }>;
+      page: number;
+      limit: number;
+      totalItems: number;
+      totalPages: number;
+    };
+
+    expect(cardsListBody).toMatchObject({
+      page: 1,
+      limit: 20,
+      totalItems: 2,
+      totalPages: 1,
+    });
+    expect(cardsListBody.items[0]).toMatchObject({
+      importId: createdImport.importId,
+      ankiCardId: '10',
+      deck: {
+        deckId,
+        ankiDeckId: '200',
+        name: 'English::Vocabulary::Advanced',
+      },
+      note: {
+        noteId,
+        ankiNoteId: '1',
+        tags: ['anki', 'imported'],
+        model: {
+          ankiModelId: '20',
+          name: 'Basic (and reversed card)',
+        },
+      },
+    });
+    expect(cardsListBody.items[0]?.note.fieldPreviews).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'Front',
+          mediaReferencesCount: 1,
+        }),
+      ]),
+    );
+    expect(cardsListBody.items[1]).toMatchObject({
+      importId: createdImport.importId,
+      ankiCardId: '11',
+      deck: {
+        deckId,
+        ankiDeckId: '200',
+        name: 'English::Vocabulary::Advanced',
+      },
+    });
+
+    const cardId = cardsListBody.items[0].cardId;
+
+    const cardResponse = await request(server)
+      .get(`/api/v1/cards/${cardId}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+
+    expect(cardResponse.body).toMatchObject({
+      cardId,
+      importId: createdImport.importId,
+      ankiCardId: '10',
+      deck: {
+        deckId,
+        ankiDeckId: '200',
+        name: 'English::Vocabulary::Advanced',
+      },
+      note: {
+        noteId,
+        ankiNoteId: '1',
+        tags: ['anki', 'imported'],
+        model: {
+          ankiModelId: '20',
+          name: 'Basic (and reversed card)',
+        },
+        fields: {
+          Front: {
+            value: 'Front text <img src="front.png">',
+            mediaReferences: [{ type: 'IMAGE', reference: 'front.png' }],
+          },
+        },
+      },
+    });
+
+    const mediaResponse = await request(server)
+      .get(
+        `/api/v1/imports/${createdImport.importId}/media?type=IMAGE&page=1&limit=10`,
+      )
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+
+    const mediaListBody = mediaResponse.body as unknown as {
+      items: Array<{
+        mediaId: string;
+        importId: string;
+        ankiIndex: string;
+        originalName: string;
+        mimeType: string;
+        sizeKb: number;
+        type: string;
+        downloadUrl: string;
+        infoUrl: string;
+      }>;
+      page: number;
+      limit: number;
+      totalItems: number;
+      totalPages: number;
+    };
+
+    expect(mediaListBody).toMatchObject({
+      items: [
+        {
+          importId: createdImport.importId,
+          ankiIndex: '0',
+          originalName: 'front.png',
+          mimeType: 'image/png',
+          sizeKb: 1,
+          type: 'IMAGE',
+        },
+      ],
+      page: 1,
+      limit: 10,
+      totalItems: 1,
+      totalPages: 1,
+    });
+    expect(mediaListBody.items[0]?.downloadUrl).toContain('/api/v1/media/');
+    expect(mediaListBody.items[0]?.infoUrl).toContain('/api/v1/media/');
+
+    const mediaId = mediaListBody.items[0].mediaId;
+
+    const mediaInfoResponse = await request(server)
+      .get(`/api/v1/media/${mediaId}/info`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+
+    expect(mediaInfoResponse.body).toMatchObject({
+      mediaId,
+      importId: createdImport.importId,
+      ankiIndex: '0',
+      originalName: 'front.png',
+      mimeType: 'image/png',
+      sizeKb: 1,
+      type: 'IMAGE',
+      fileAvailable: true,
+    });
+
+    const mediaFileResponse = await request(server)
+      .get(`/api/v1/media/${mediaId}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .buffer(true)
+      .parse(binaryParser)
+      .expect(200);
+
+    expect(mediaFileResponse.headers['content-type']).toContain('image/png');
+    expect(mediaFileResponse.body).toEqual(Buffer.from('image-bytes'));
+
     const workspacePath = join(
       process.env.IMPORTS_TEMP_DIR!,
       createdImport.importId,
@@ -421,6 +717,9 @@ describe('Imports API (e2e)', () => {
   it('returns the standardized 404 payload when an import does not exist', async () => {
     const server = app.getHttpServer() as Parameters<typeof request>[0];
     const missingImportId = 'missing-import';
+    const missingNoteId = 'missing-note';
+    const missingCardId = 'missing-card';
+    const missingMediaId = 'missing-media';
 
     const detailResponse = await request(server)
       .get(`/api/v1/imports/${missingImportId}`)
@@ -448,6 +747,45 @@ describe('Imports API (e2e)', () => {
       method: 'GET',
     });
 
+    const notesResponse = await request(server)
+      .get(`/api/v1/imports/${missingImportId}/notes`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(404);
+
+    expect(notesResponse.body).toMatchObject({
+      statusCode: 404,
+      message: 'Import not found.',
+      error: 'Not Found',
+      path: `/api/v1/imports/${missingImportId}/notes`,
+      method: 'GET',
+    });
+
+    const cardsResponse = await request(server)
+      .get(`/api/v1/imports/${missingImportId}/cards`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(404);
+
+    expect(cardsResponse.body).toMatchObject({
+      statusCode: 404,
+      message: 'Import not found.',
+      error: 'Not Found',
+      path: `/api/v1/imports/${missingImportId}/cards`,
+      method: 'GET',
+    });
+
+    const mediaResponse = await request(server)
+      .get(`/api/v1/imports/${missingImportId}/media`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(404);
+
+    expect(mediaResponse.body).toMatchObject({
+      statusCode: 404,
+      message: 'Import not found.',
+      error: 'Not Found',
+      path: `/api/v1/imports/${missingImportId}/media`,
+      method: 'GET',
+    });
+
     const deleteResponse = await request(server)
       .delete(`/api/v1/imports/${missingImportId}`)
       .set('Authorization', `Bearer ${accessToken}`)
@@ -460,6 +798,98 @@ describe('Imports API (e2e)', () => {
       path: `/api/v1/imports/${missingImportId}`,
       method: 'DELETE',
     });
+
+    const noteDetailResponse = await request(server)
+      .get(`/api/v1/notes/${missingNoteId}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(404);
+
+    expect(noteDetailResponse.body).toMatchObject({
+      statusCode: 404,
+      message: 'Note not found.',
+      error: 'Not Found',
+      path: `/api/v1/notes/${missingNoteId}`,
+      method: 'GET',
+    });
+
+    const cardDetailResponse = await request(server)
+      .get(`/api/v1/cards/${missingCardId}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(404);
+
+    expect(cardDetailResponse.body).toMatchObject({
+      statusCode: 404,
+      message: 'Card not found.',
+      error: 'Not Found',
+      path: `/api/v1/cards/${missingCardId}`,
+      method: 'GET',
+    });
+
+    const mediaInfoResponse = await request(server)
+      .get(`/api/v1/media/${missingMediaId}/info`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(404);
+
+    expect(mediaInfoResponse.body).toMatchObject({
+      statusCode: 404,
+      message: 'Media not found.',
+      error: 'Not Found',
+      path: `/api/v1/media/${missingMediaId}/info`,
+      method: 'GET',
+    });
+  });
+
+  it('returns 404 for a removed media binary without exposing filesystem paths', async () => {
+    const fileContents = await createApkgBuffer();
+    const server = app.getHttpServer() as Parameters<typeof request>[0];
+
+    const createResponse = await request(server)
+      .post('/api/v1/imports')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .attach('file', fileContents, 'english.apkg')
+      .expect(201);
+
+    const createdImport = createResponse.body as {
+      importId: string;
+    };
+
+    const mediaResponse = await request(server)
+      .get(
+        `/api/v1/imports/${createdImport.importId}/media?type=IMAGE&page=1&limit=10`,
+      )
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+
+    const mediaListBody = mediaResponse.body as unknown as {
+      items: Array<{ mediaId: string }>;
+    };
+    const mediaId = mediaListBody.items[0].mediaId;
+    const storedMediaPath = join(
+      process.env.MEDIA_STORAGE_DIR!,
+      createdImport.importId,
+      '0-front.png',
+    );
+
+    rmSync(storedMediaPath, { force: true });
+
+    const missingMediaResponse = await request(server)
+      .get(`/api/v1/media/${mediaId}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(404);
+
+    expect(missingMediaResponse.body).toMatchObject({
+      statusCode: 404,
+      message: 'Media file not found.',
+      error: 'Not Found',
+      path: `/api/v1/media/${mediaId}`,
+      method: 'GET',
+    });
+    expect(JSON.stringify(missingMediaResponse.body)).not.toContain(
+      process.env.MEDIA_STORAGE_DIR!,
+    );
+    expect(JSON.stringify(missingMediaResponse.body)).not.toContain(
+      storedMediaPath,
+    );
   });
 
   it('skips media mapped in the media file when the binary is missing from the package', async () => {
@@ -754,6 +1184,26 @@ async function createApkgBuffer(
   } finally {
     await rm(fixtureRoot, { recursive: true, force: true });
   }
+}
+
+function binaryParser(
+  response: NodeJS.ReadableStream,
+  callback: (error: Error | null, body?: Buffer) => void,
+): void {
+  const chunks: Buffer[] = [];
+
+  response.on('data', (chunk: Buffer | string) => {
+    const bufferChunk =
+      typeof chunk === 'string' ? Buffer.from(chunk, 'binary') : chunk;
+
+    chunks.push(bufferChunk);
+  });
+  response.on('end', () => {
+    callback(null, Buffer.concat(chunks));
+  });
+  response.on('error', (error: Error) => {
+    callback(error);
+  });
 }
 
 function createSqliteCollection(

@@ -34,14 +34,23 @@ import {
   createImportDtoFromUploadedFile,
   CreateImportDto,
 } from './dto/create-import.dto';
+import { ListImportCardsQueryDto } from './dto/list-import-cards-query.dto';
+import { ListImportMediaQueryDto } from './dto/list-import-media-query.dto';
+import { ListImportNotesQueryDto } from './dto/list-import-notes-query.dto';
+import { PaginatedCardsEntity } from './entities/paginated-cards.entity';
 import { UploadImportFileDto } from './dto/upload-import-file.dto';
+import { PaginatedMediaEntity } from './entities/paginated-media.entity';
+import { PaginatedNotesEntity } from './entities/paginated-notes.entity';
 import { ImportDetailsEntity } from './entities/import-details.entity';
 import { ImportEntity } from './entities/import.entity';
 import { PaginatedDecksEntity } from './entities/paginated-decks.entity';
 import { PaginatedImportsEntity } from './entities/paginated-imports.entity';
 import { ImportsService } from './imports.service';
 import {
+  listImportCardsQuerySchema,
   listImportDecksQuerySchema,
+  listImportMediaQuerySchema,
+  listImportNotesQuerySchema,
   listImportsQuerySchema,
 } from './schemas/import-query.schema';
 
@@ -68,6 +77,33 @@ const importUploadInterceptor = FileInterceptor('file', {
     files: 1,
   },
 });
+
+const importNotFoundExamples = {
+  notes: {
+    statusCode: 404,
+    timestamp: '2026-03-16T15:30:00.000Z',
+    message: 'Import not found.',
+    error: 'Not Found',
+    path: '/api/v1/imports/d5cc7d43-1483-4e4a-a520-77dfc4cbe010/notes',
+    method: 'GET',
+  },
+  cards: {
+    statusCode: 404,
+    timestamp: '2026-03-16T15:30:00.000Z',
+    message: 'Import not found.',
+    error: 'Not Found',
+    path: '/api/v1/imports/d5cc7d43-1483-4e4a-a520-77dfc4cbe010/cards',
+    method: 'GET',
+  },
+  media: {
+    statusCode: 404,
+    timestamp: '2026-03-16T15:30:00.000Z',
+    message: 'Import not found.',
+    error: 'Not Found',
+    path: '/api/v1/imports/d5cc7d43-1483-4e4a-a520-77dfc4cbe010/media',
+    method: 'GET',
+  },
+};
 
 @ApiTags('Imports')
 @ApiBearerAuth('bearer')
@@ -134,6 +170,67 @@ export class ImportsController {
     query: PaginationDto,
   ): Promise<PaginatedDecksEntity> {
     return this.importsService.findImportDecks(importId, query);
+  }
+
+  @Get(':importId/notes')
+  @ApiOperation({
+    summary: 'List notes extracted for a specific import.',
+  })
+  @ApiOkResponse({ type: PaginatedNotesEntity })
+  @ApiNotFoundResponse({
+    description: 'Import not found.',
+    schema: { example: importNotFoundExamples.notes },
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication is required.',
+  })
+  async findNotes(
+    @Param('importId') importId: string,
+    @Query(new ZodValidationPipe(listImportNotesQuerySchema))
+    query: ListImportNotesQueryDto,
+  ): Promise<PaginatedNotesEntity> {
+    return this.importsService.findImportNotes(importId, query);
+  }
+
+  @Get(':importId/cards')
+  @ApiOperation({
+    summary:
+      'List cards extracted for a specific import, including note summaries.',
+  })
+  @ApiOkResponse({ type: PaginatedCardsEntity })
+  @ApiNotFoundResponse({
+    description: 'Import not found.',
+    schema: { example: importNotFoundExamples.cards },
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication is required.',
+  })
+  async findCards(
+    @Param('importId') importId: string,
+    @Query(new ZodValidationPipe(listImportCardsQuerySchema))
+    query: ListImportCardsQueryDto,
+  ): Promise<PaginatedCardsEntity> {
+    return this.importsService.findImportCards(importId, query);
+  }
+
+  @Get(':importId/media')
+  @ApiOperation({
+    summary: 'List extracted media for a specific import.',
+  })
+  @ApiOkResponse({ type: PaginatedMediaEntity })
+  @ApiNotFoundResponse({
+    description: 'Import not found.',
+    schema: { example: importNotFoundExamples.media },
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication is required.',
+  })
+  async findMedia(
+    @Param('importId') importId: string,
+    @Query(new ZodValidationPipe(listImportMediaQuerySchema))
+    query: ListImportMediaQueryDto,
+  ): Promise<PaginatedMediaEntity> {
+    return this.importsService.findImportMedia(importId, query);
   }
 
   @Get(':id')

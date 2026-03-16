@@ -1,13 +1,16 @@
-import { basename, join } from 'node:path';
-import { copyFile, mkdir, rename, rm } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { basename, join, resolve, sep } from 'node:path';
+import { copyFile, mkdir, rename, rm, stat } from 'node:fs/promises';
 import {
   BadRequestException,
   Injectable,
   InternalServerErrorException,
   Logger,
   NotFoundException,
+  StreamableFile,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { MediaType, Prisma } from '@prisma/client';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { PrismaService } from '../../common/services/prisma.service';
 import { config } from '../../config/config';
@@ -20,11 +23,24 @@ import {
   InvalidAnkiPackageError,
 } from './anki-package.service';
 import { CreateImportDto } from './dto/create-import.dto';
+import { ListImportCardsQueryDto } from './dto/list-import-cards-query.dto';
+import { ListImportMediaQueryDto } from './dto/list-import-media-query.dto';
+import { ListImportNotesQueryDto } from './dto/list-import-notes-query.dto';
+import { CardEntity, CardSummaryEntity } from './entities/card.entity';
 import { DeckEntity } from './entities/deck.entity';
 import { ImportDetailsEntity } from './entities/import-details.entity';
 import { ImportEntity } from './entities/import.entity';
+import { MediaEntity, MediaInfoEntity } from './entities/media.entity';
+import { NoteEntity, NoteSummaryEntity } from './entities/note.entity';
+import { PaginatedCardsEntity } from './entities/paginated-cards.entity';
 import { PaginatedDecksEntity } from './entities/paginated-decks.entity';
 import { PaginatedImportsEntity } from './entities/paginated-imports.entity';
+import { PaginatedMediaEntity } from './entities/paginated-media.entity';
+import { PaginatedNotesEntity } from './entities/paginated-notes.entity';
+import {
+  NoteFieldPreviewShape,
+  NoteFieldValueShape,
+} from './entities/shared-content.entity';
 import { createImportSchema } from './schemas/import.schema';
 
 @Injectable()
@@ -200,6 +216,309 @@ export class ImportsService {
       ...deck,
       cardsCount,
       notesCount: distinctNotes.length,
+    });
+  }
+
+  async findImportNotes(
+    importId: string,
+    query: ListImportNotesQueryDto,
+  ): Promise<PaginatedNotesEntity> {
+    await this.ensureImportExists(importId);
+
+    const { page, limit, skip, take } = this.resolvePagination(query);
+    const where = this.buildNoteWhereInput(importId, query);
+
+    const [notes, totalItems] = await Promise.all([
+      this.prisma.note.findMany({
+        where,
+        orderBy: [{ ankiNoteId: 'asc' }, { id: 'asc' }],
+        skip,
+        take,
+        include: {
+          model: {
+            select: {
+              id: true,
+              ankiModelId: true,
+              name: true,
+            },
+          },
+          _count: {
+            select: {
+              cards: true,
+            },
+          },
+        },
+      }),
+      this.prisma.note.count({ where }),
+    ]);
+
+    return PaginatedNotesEntity.create({
+      items: notes.map(note =>
+        NoteSummaryEntity.fromRecord({
+          id: note.id,
+          importId: note.importId,
+          ankiNoteId: note.ankiNoteId,
+          model: note.model,
+          tags: note.tags,
+          fieldPreviews: this.buildFieldPreviews(note.fields),
+          cardsCount: note._count.cards,
+          createdAt: note.createdAt,
+        }),
+      ),
+      page,
+      limit,
+      totalItems,
+    });
+  }
+
+  async findNote(id: string): Promise<NoteEntity> {
+    const note = await this.prisma.note.findUnique({
+      where: { id },
+      include: {
+        model: {
+          select: {
+            id: true,
+            ankiModelId: true,
+            name: true,
+          },
+        },
+        cards: {
+          orderBy: [{ ordinal: 'asc' }, { id: 'asc' }],
+          select: {
+            id: true,
+            ankiCardId: true,
+            ordinal: true,
+            cardType: true,
+            queue: true,
+            deck: {
+              select: {
+                id: true,
+                ankiDeckId: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!note) {
+      throw new NotFoundException('Note not found.');
+    }
+
+    return NoteEntity.fromRecord({
+      id: note.id,
+      importId: note.importId,
+      ankiNoteId: note.ankiNoteId,
+      model: note.model,
+      tags: note.tags,
+      fields: this.parsePersistedNoteFields(note.fields),
+      cards: note.cards.map(card => ({
+        id: card.id,
+        ankiCardId: card.ankiCardId,
+        ordinal: card.ordinal,
+        cardType: card.cardType,
+        queue: card.queue,
+        deck: card.deck,
+      })),
+      createdAt: note.createdAt,
+    });
+  }
+
+  async findImportCards(
+    importId: string,
+    query: ListImportCardsQueryDto,
+  ): Promise<PaginatedCardsEntity> {
+    await this.ensureImportExists(importId);
+
+    const { page, limit, skip, take } = this.resolvePagination(query);
+    const where = this.buildCardWhereInput(importId, query);
+
+    const [cards, totalItems] = await Promise.all([
+      this.prisma.card.findMany({
+        where,
+        orderBy: [{ ordinal: 'asc' }, { ankiCardId: 'asc' }, { id: 'asc' }],
+        skip,
+        take,
+        include: {
+          deck: {
+            select: {
+              id: true,
+              ankiDeckId: true,
+              name: true,
+            },
+          },
+          note: {
+            select: {
+              id: true,
+              ankiNoteId: true,
+              tags: true,
+              fields: true,
+              model: {
+                select: {
+                  id: true,
+                  ankiModelId: true,
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.card.count({ where }),
+    ]);
+
+    return PaginatedCardsEntity.create({
+      items: cards.map(card =>
+        CardSummaryEntity.fromRecord({
+          id: card.id,
+          importId: card.importId,
+          ankiCardId: card.ankiCardId,
+          ordinal: card.ordinal,
+          cardType: card.cardType,
+          queue: card.queue,
+          dueDate: card.dueDate,
+          interval: card.interval,
+          easeFactor: card.easeFactor,
+          repetitions: card.repetitions,
+          lapses: card.lapses,
+          deck: card.deck,
+          note: {
+            id: card.note.id,
+            ankiNoteId: card.note.ankiNoteId,
+            model: card.note.model,
+            tags: card.note.tags,
+            fieldPreviews: this.buildFieldPreviews(card.note.fields),
+          },
+          createdAt: card.createdAt,
+        }),
+      ),
+      page,
+      limit,
+      totalItems,
+    });
+  }
+
+  async findCard(id: string): Promise<CardEntity> {
+    const card = await this.prisma.card.findUnique({
+      where: { id },
+      include: {
+        deck: {
+          select: {
+            id: true,
+            ankiDeckId: true,
+            name: true,
+          },
+        },
+        note: {
+          select: {
+            id: true,
+            ankiNoteId: true,
+            tags: true,
+            fields: true,
+            model: {
+              select: {
+                id: true,
+                ankiModelId: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!card) {
+      throw new NotFoundException('Card not found.');
+    }
+
+    return CardEntity.fromRecord({
+      id: card.id,
+      importId: card.importId,
+      ankiCardId: card.ankiCardId,
+      ordinal: card.ordinal,
+      cardType: card.cardType,
+      queue: card.queue,
+      dueDate: card.dueDate,
+      interval: card.interval,
+      easeFactor: card.easeFactor,
+      repetitions: card.repetitions,
+      lapses: card.lapses,
+      deck: card.deck,
+      note: {
+        id: card.note.id,
+        ankiNoteId: card.note.ankiNoteId,
+        model: card.note.model,
+        tags: card.note.tags,
+        fields: this.parsePersistedNoteFields(card.note.fields),
+      },
+      createdAt: card.createdAt,
+    });
+  }
+
+  async findImportMedia(
+    importId: string,
+    query: ListImportMediaQueryDto,
+  ): Promise<PaginatedMediaEntity> {
+    await this.ensureImportExists(importId);
+
+    const { page, limit, skip, take } = this.resolvePagination(query);
+    const where: Prisma.MediaFileWhereInput = {
+      importId,
+      ...(query.type ? { type: query.type } : {}),
+    };
+
+    const [mediaFiles, totalItems] = await Promise.all([
+      this.prisma.mediaFile.findMany({
+        where,
+        orderBy: [{ ankiIndex: 'asc' }, { id: 'asc' }],
+        skip,
+        take,
+      }),
+      this.prisma.mediaFile.count({ where }),
+    ]);
+
+    return PaginatedMediaEntity.create({
+      items: mediaFiles.map(mediaFile =>
+        MediaEntity.fromRecord(this.toMediaShape(mediaFile)),
+      ),
+      page,
+      limit,
+      totalItems,
+    });
+  }
+
+  async findMediaInfo(id: string): Promise<MediaInfoEntity> {
+    const mediaFile = await this.getMediaRecordOrThrow(id, 'Media not found.');
+
+    return MediaInfoEntity.fromRecord({
+      ...this.toMediaShape(mediaFile),
+      fileAvailable: await this.isMediaFileAvailable(mediaFile),
+    });
+  }
+
+  async readMediaFile(id: string): Promise<StreamableFile> {
+    const mediaFile = await this.getMediaRecordOrThrow(
+      id,
+      'Media file not found.',
+    );
+    const mediaPath = this.resolveMediaFilePath(
+      mediaFile.importId,
+      mediaFile.storageUrl,
+    );
+
+    let mediaStats: Awaited<ReturnType<typeof stat>>;
+
+    try {
+      mediaStats = await stat(mediaPath);
+    } catch {
+      throw new NotFoundException('Media file not found.');
+    }
+
+    return new StreamableFile(createReadStream(mediaPath), {
+      type: mediaFile.mimeType,
+      disposition: `inline; filename="${this.sanitizeDispositionFileName(mediaFile.originalName)}"`,
+      length: mediaStats.size,
     });
   }
 
@@ -476,6 +795,245 @@ export class ImportsService {
       cardsCountByDeckId,
       notesCountByDeckId,
     };
+  }
+
+  private buildNoteWhereInput(
+    importId: string,
+    query: ListImportNotesQueryDto,
+  ): Prisma.NoteWhereInput {
+    const tags = this.parseTagsFilter(query.tags);
+
+    return {
+      importId,
+      ...(query.deckId
+        ? {
+            cards: {
+              some: {
+                deckId: query.deckId,
+              },
+            },
+          }
+        : {}),
+      ...(tags.length > 0
+        ? {
+            tags: {
+              hasEvery: tags,
+            },
+          }
+        : {}),
+    };
+  }
+
+  private buildCardWhereInput(
+    importId: string,
+    query: ListImportCardsQueryDto,
+  ): Prisma.CardWhereInput {
+    const tags = this.parseTagsFilter(query.tags);
+
+    return {
+      importId,
+      ...(query.deckId ? { deckId: query.deckId } : {}),
+      ...(tags.length > 0
+        ? {
+            note: {
+              tags: {
+                hasEvery: tags,
+              },
+            },
+          }
+        : {}),
+    };
+  }
+
+  private parseTagsFilter(rawTags?: string): string[] {
+    if (!rawTags) {
+      return [];
+    }
+
+    return [
+      ...new Set(
+        rawTags
+          .split(',')
+          .map(tag => tag.trim())
+          .filter(Boolean),
+      ),
+    ];
+  }
+
+  private parsePersistedNoteFields(
+    value: Prisma.JsonValue,
+  ): Record<string, NoteFieldValueShape> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return {};
+    }
+
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(
+        ([fieldName, rawFieldValue]) => {
+          const fieldValue =
+            rawFieldValue &&
+            typeof rawFieldValue === 'object' &&
+            !Array.isArray(rawFieldValue)
+              ? (rawFieldValue as Record<string, unknown>)
+              : {};
+          const mediaReferences = Array.isArray(fieldValue.mediaReferences)
+            ? fieldValue.mediaReferences
+                .map(reference => this.parsePersistedMediaReference(reference))
+                .filter(
+                  (
+                    reference,
+                  ): reference is NoteFieldValueShape['mediaReferences'][number] =>
+                    reference !== null,
+                )
+            : [];
+
+          return [
+            fieldName,
+            {
+              value:
+                typeof fieldValue.value === 'string' ? fieldValue.value : '',
+              mediaReferences,
+            },
+          ];
+        },
+      ),
+    );
+  }
+
+  private parsePersistedMediaReference(
+    value: unknown,
+  ): NoteFieldValueShape['mediaReferences'][number] | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null;
+    }
+
+    const reference = value as Record<string, unknown>;
+
+    if (
+      (reference.type === 'IMAGE' || reference.type === 'AUDIO') &&
+      typeof reference.reference === 'string'
+    ) {
+      return {
+        type: reference.type,
+        reference: reference.reference,
+      };
+    }
+
+    return null;
+  }
+
+  private buildFieldPreviews(value: Prisma.JsonValue): NoteFieldPreviewShape[] {
+    return Object.entries(this.parsePersistedNoteFields(value)).map(
+      ([fieldName, fieldValue]) => ({
+        name: fieldName,
+        valuePreview: this.toPreviewValue(fieldValue.value),
+        mediaReferencesCount: fieldValue.mediaReferences.length,
+      }),
+    );
+  }
+
+  private toPreviewValue(value: string): string {
+    return value.length <= 120 ? value : `${value.slice(0, 117)}...`;
+  }
+
+  private async getMediaRecordOrThrow(
+    id: string,
+    message: string,
+  ): Promise<{
+    id: string;
+    importId: string;
+    ankiIndex: string;
+    originalName: string;
+    mimeType: string;
+    sizeKb: number;
+    storageUrl: string;
+    type: MediaType;
+    createdAt: Date;
+  }> {
+    const mediaFile = await this.prisma.mediaFile.findUnique({
+      where: { id },
+    });
+
+    if (!mediaFile) {
+      throw new NotFoundException(message);
+    }
+
+    return mediaFile;
+  }
+
+  private toMediaShape(mediaFile: {
+    id: string;
+    importId: string;
+    ankiIndex: string;
+    originalName: string;
+    mimeType: string;
+    sizeKb: number;
+    type: MediaType;
+    createdAt: Date;
+  }): {
+    id: string;
+    importId: string;
+    ankiIndex: string;
+    originalName: string;
+    mimeType: string;
+    sizeKb: number;
+    type: MediaType;
+    downloadUrl: string;
+    infoUrl: string;
+    createdAt: Date;
+  } {
+    const basePath = `/${config.app.apiPrefix}/v${config.app.apiVersion}/media/${mediaFile.id}`;
+
+    return {
+      id: mediaFile.id,
+      importId: mediaFile.importId,
+      ankiIndex: mediaFile.ankiIndex,
+      originalName: mediaFile.originalName,
+      mimeType: mediaFile.mimeType,
+      sizeKb: mediaFile.sizeKb,
+      type: mediaFile.type,
+      downloadUrl: basePath,
+      infoUrl: `${basePath}/info`,
+      createdAt: mediaFile.createdAt,
+    };
+  }
+
+  private async isMediaFileAvailable(mediaFile: {
+    importId: string;
+    storageUrl: string;
+  }): Promise<boolean> {
+    try {
+      await stat(
+        this.resolveMediaFilePath(mediaFile.importId, mediaFile.storageUrl),
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private resolveMediaFilePath(importId: string, storageUrl: string): string {
+    const importMediaPath = resolve(config.storage.mediaDir, importId);
+    const fileName = basename(storageUrl.replaceAll('\\', '/')).trim();
+
+    if (fileName.length === 0) {
+      throw new NotFoundException('Media file not found.');
+    }
+
+    const mediaPath = resolve(importMediaPath, fileName);
+
+    if (!mediaPath.startsWith(`${importMediaPath}${sep}`)) {
+      throw new NotFoundException('Media file not found.');
+    }
+
+    return mediaPath;
+  }
+
+  private sanitizeDispositionFileName(originalName: string): string {
+    const fileName = basename(originalName.replaceAll('\\', '/')).trim();
+    const sanitized = fileName.replaceAll('"', '_');
+
+    return sanitized.length > 0 ? sanitized : 'media-file';
   }
 
   private getWorkspacePath(importId: string): string {

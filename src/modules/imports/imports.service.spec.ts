@@ -23,16 +23,23 @@ type MockTransactionClient = {
     findMany: jest.Mock;
   };
   note: {
+    count: jest.Mock;
     createMany: jest.Mock;
     findMany: jest.Mock;
+    findUnique: jest.Mock;
   };
   card: {
+    findMany: jest.Mock;
+    findUnique: jest.Mock;
     createMany: jest.Mock;
     count: jest.Mock;
     groupBy: jest.Mock;
   };
   mediaFile: {
+    count: jest.Mock;
     createMany: jest.Mock;
+    findMany: jest.Mock;
+    findUnique: jest.Mock;
   };
 };
 
@@ -60,16 +67,23 @@ describe('ImportsService', () => {
       findMany: jest.Mock;
     };
     note: {
+      count: jest.Mock;
       createMany: jest.Mock;
       findMany: jest.Mock;
+      findUnique: jest.Mock;
     };
     card: {
+      findMany: jest.Mock;
+      findUnique: jest.Mock;
       createMany: jest.Mock;
       count: jest.Mock;
       groupBy: jest.Mock;
     };
     mediaFile: {
+      count: jest.Mock;
       createMany: jest.Mock;
+      findMany: jest.Mock;
+      findUnique: jest.Mock;
     };
   };
 
@@ -95,16 +109,23 @@ describe('ImportsService', () => {
         findMany: jest.fn(),
       },
       note: {
+        count: jest.fn(),
         createMany: jest.fn(),
         findMany: jest.fn(),
+        findUnique: jest.fn(),
       },
       card: {
+        findMany: jest.fn(),
+        findUnique: jest.fn(),
         createMany: jest.fn(),
         count: jest.fn(),
         groupBy: jest.fn(),
       },
       mediaFile: {
+        count: jest.fn(),
         createMany: jest.fn(),
+        findMany: jest.fn(),
+        findUnique: jest.fn(),
       },
     };
     prisma.$transaction.mockImplementation(
@@ -952,6 +973,529 @@ describe('ImportsService', () => {
 
     await expect(service.findDeck('missing-deck')).rejects.toThrow(
       'Deck not found.',
+    );
+  });
+
+  it('lists notes with deck and tag filters and returns note details', async () => {
+    const createdAt = new Date('2026-03-16T12:00:00.000Z');
+    const deckId = '49768756-6369-4f37-a4dc-c427f2c91381';
+
+    prisma.import.findUnique.mockResolvedValueOnce({
+      id: 'import-1',
+    });
+    prisma.note.findMany.mockResolvedValueOnce([
+      {
+        id: 'note-1',
+        importId: 'import-1',
+        ankiNoteId: '1',
+        tags: ['anki', 'imported'],
+        fields: {
+          Front: {
+            value: 'Front text <img src="front.png">',
+            mediaReferences: [{ type: 'IMAGE', reference: 'front.png' }],
+          },
+          Back: {
+            value: 'Back text with <b>HTML</b>',
+            mediaReferences: [],
+          },
+        },
+        createdAt,
+        model: {
+          id: 'model-1',
+          ankiModelId: '20',
+          name: 'Basic (and reversed card)',
+        },
+        _count: {
+          cards: 2,
+        },
+      },
+    ]);
+    prisma.note.count.mockResolvedValueOnce(1);
+
+    await expect(
+      service.findImportNotes('import-1', {
+        page: 1,
+        limit: 20,
+        deckId,
+        tags: 'anki,imported',
+      }),
+    ).resolves.toEqual({
+      items: [
+        {
+          noteId: 'note-1',
+          importId: 'import-1',
+          ankiNoteId: '1',
+          model: {
+            modelId: 'model-1',
+            ankiModelId: '20',
+            name: 'Basic (and reversed card)',
+          },
+          tags: ['anki', 'imported'],
+          fieldPreviews: [
+            {
+              name: 'Front',
+              valuePreview: 'Front text <img src="front.png">',
+              mediaReferencesCount: 1,
+            },
+            {
+              name: 'Back',
+              valuePreview: 'Back text with <b>HTML</b>',
+              mediaReferencesCount: 0,
+            },
+          ],
+          cardsCount: 2,
+          createdAt,
+        },
+      ],
+      page: 1,
+      limit: 20,
+      totalItems: 1,
+      totalPages: 1,
+    });
+
+    expect(prisma.note.findMany).toHaveBeenCalledWith({
+      where: {
+        importId: 'import-1',
+        cards: {
+          some: {
+            deckId,
+          },
+        },
+        tags: {
+          hasEvery: ['anki', 'imported'],
+        },
+      },
+      orderBy: [{ ankiNoteId: 'asc' }, { id: 'asc' }],
+      skip: 0,
+      take: 20,
+      include: {
+        model: {
+          select: {
+            id: true,
+            ankiModelId: true,
+            name: true,
+          },
+        },
+        _count: {
+          select: {
+            cards: true,
+          },
+        },
+      },
+    });
+
+    prisma.note.findUnique.mockResolvedValueOnce({
+      id: 'note-1',
+      importId: 'import-1',
+      ankiNoteId: '1',
+      tags: ['anki', 'imported'],
+      fields: {
+        Front: {
+          value: 'Front text <img src="front.png">',
+          mediaReferences: [{ type: 'IMAGE', reference: 'front.png' }],
+        },
+        Back: {
+          value: 'Back text with <b>HTML</b>',
+          mediaReferences: [],
+        },
+      },
+      createdAt,
+      model: {
+        id: 'model-1',
+        ankiModelId: '20',
+        name: 'Basic (and reversed card)',
+      },
+      cards: [
+        {
+          id: 'card-1',
+          ankiCardId: '10',
+          ordinal: 0,
+          cardType: 0,
+          queue: 0,
+          deck: {
+            id: deckId,
+            ankiDeckId: '200',
+            name: 'English::Vocabulary::Advanced',
+          },
+        },
+      ],
+    });
+
+    await expect(service.findNote('note-1')).resolves.toEqual({
+      noteId: 'note-1',
+      importId: 'import-1',
+      ankiNoteId: '1',
+      model: {
+        modelId: 'model-1',
+        ankiModelId: '20',
+        name: 'Basic (and reversed card)',
+      },
+      tags: ['anki', 'imported'],
+      fields: {
+        Front: {
+          value: 'Front text <img src="front.png">',
+          mediaReferences: [{ type: 'IMAGE', reference: 'front.png' }],
+        },
+        Back: {
+          value: 'Back text with <b>HTML</b>',
+          mediaReferences: [],
+        },
+      },
+      cards: [
+        {
+          cardId: 'card-1',
+          ankiCardId: '10',
+          ordinal: 0,
+          cardType: 0,
+          queue: 0,
+          deck: {
+            deckId,
+            ankiDeckId: '200',
+            name: 'English::Vocabulary::Advanced',
+          },
+        },
+      ],
+      createdAt,
+    });
+
+    prisma.note.findUnique.mockResolvedValueOnce(null);
+
+    await expect(service.findNote('missing-note')).rejects.toThrow(
+      'Note not found.',
+    );
+  });
+
+  it('lists cards with deck and tag filters and returns card details', async () => {
+    const createdAt = new Date('2026-03-16T12:00:00.000Z');
+    const deckId = '49768756-6369-4f37-a4dc-c427f2c91381';
+
+    prisma.import.findUnique.mockResolvedValueOnce({
+      id: 'import-1',
+    });
+    prisma.card.findMany.mockResolvedValueOnce([
+      {
+        id: 'card-1',
+        importId: 'import-1',
+        ankiCardId: '10',
+        ordinal: 0,
+        cardType: 0,
+        queue: 0,
+        dueDate: 0,
+        interval: 0,
+        easeFactor: 0,
+        repetitions: 0,
+        lapses: 0,
+        createdAt,
+        deck: {
+          id: deckId,
+          ankiDeckId: '200',
+          name: 'English::Vocabulary::Advanced',
+        },
+        note: {
+          id: 'note-1',
+          ankiNoteId: '1',
+          tags: ['anki', 'imported'],
+          fields: {
+            Front: {
+              value: 'Front text <img src="front.png">',
+              mediaReferences: [{ type: 'IMAGE', reference: 'front.png' }],
+            },
+          },
+          model: {
+            id: 'model-1',
+            ankiModelId: '20',
+            name: 'Basic (and reversed card)',
+          },
+        },
+      },
+    ]);
+    prisma.card.count.mockResolvedValueOnce(1);
+
+    await expect(
+      service.findImportCards('import-1', {
+        page: 1,
+        limit: 20,
+        deckId,
+        tags: 'anki,imported',
+      }),
+    ).resolves.toEqual({
+      items: [
+        {
+          cardId: 'card-1',
+          importId: 'import-1',
+          ankiCardId: '10',
+          ordinal: 0,
+          cardType: 0,
+          queue: 0,
+          dueDate: 0,
+          interval: 0,
+          easeFactor: 0,
+          repetitions: 0,
+          lapses: 0,
+          deck: {
+            deckId,
+            ankiDeckId: '200',
+            name: 'English::Vocabulary::Advanced',
+          },
+          note: {
+            noteId: 'note-1',
+            ankiNoteId: '1',
+            model: {
+              modelId: 'model-1',
+              ankiModelId: '20',
+              name: 'Basic (and reversed card)',
+            },
+            tags: ['anki', 'imported'],
+            fieldPreviews: [
+              {
+                name: 'Front',
+                valuePreview: 'Front text <img src="front.png">',
+                mediaReferencesCount: 1,
+              },
+            ],
+          },
+          createdAt,
+        },
+      ],
+      page: 1,
+      limit: 20,
+      totalItems: 1,
+      totalPages: 1,
+    });
+
+    expect(prisma.card.findMany).toHaveBeenCalledWith({
+      where: {
+        importId: 'import-1',
+        deckId,
+        note: {
+          tags: {
+            hasEvery: ['anki', 'imported'],
+          },
+        },
+      },
+      orderBy: [{ ordinal: 'asc' }, { ankiCardId: 'asc' }, { id: 'asc' }],
+      skip: 0,
+      take: 20,
+      include: {
+        deck: {
+          select: {
+            id: true,
+            ankiDeckId: true,
+            name: true,
+          },
+        },
+        note: {
+          select: {
+            id: true,
+            ankiNoteId: true,
+            tags: true,
+            fields: true,
+            model: {
+              select: {
+                id: true,
+                ankiModelId: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    prisma.card.findUnique.mockResolvedValueOnce({
+      id: 'card-1',
+      importId: 'import-1',
+      ankiCardId: '10',
+      ordinal: 0,
+      cardType: 0,
+      queue: 0,
+      dueDate: 0,
+      interval: 0,
+      easeFactor: 0,
+      repetitions: 0,
+      lapses: 0,
+      createdAt,
+      deck: {
+        id: deckId,
+        ankiDeckId: '200',
+        name: 'English::Vocabulary::Advanced',
+      },
+      note: {
+        id: 'note-1',
+        ankiNoteId: '1',
+        tags: ['anki', 'imported'],
+        fields: {
+          Front: {
+            value: 'Front text <img src="front.png">',
+            mediaReferences: [{ type: 'IMAGE', reference: 'front.png' }],
+          },
+        },
+        model: {
+          id: 'model-1',
+          ankiModelId: '20',
+          name: 'Basic (and reversed card)',
+        },
+      },
+    });
+
+    await expect(service.findCard('card-1')).resolves.toEqual({
+      cardId: 'card-1',
+      importId: 'import-1',
+      ankiCardId: '10',
+      ordinal: 0,
+      cardType: 0,
+      queue: 0,
+      dueDate: 0,
+      interval: 0,
+      easeFactor: 0,
+      repetitions: 0,
+      lapses: 0,
+      deck: {
+        deckId,
+        ankiDeckId: '200',
+        name: 'English::Vocabulary::Advanced',
+      },
+      note: {
+        noteId: 'note-1',
+        ankiNoteId: '1',
+        model: {
+          modelId: 'model-1',
+          ankiModelId: '20',
+          name: 'Basic (and reversed card)',
+        },
+        tags: ['anki', 'imported'],
+        fields: {
+          Front: {
+            value: 'Front text <img src="front.png">',
+            mediaReferences: [{ type: 'IMAGE', reference: 'front.png' }],
+          },
+        },
+      },
+      createdAt,
+    });
+
+    prisma.card.findUnique.mockResolvedValueOnce(null);
+
+    await expect(service.findCard('missing-card')).rejects.toThrow(
+      'Card not found.',
+    );
+  });
+
+  it('lists media, returns metadata, and hides missing binary paths', async () => {
+    const createdAt = new Date('2026-03-16T12:00:00.000Z');
+    const mediaDirectory = join(config.storage.mediaDir, 'import-1');
+    const mediaPath = join(mediaDirectory, '0-front.png');
+
+    await mkdir(mediaDirectory, { recursive: true });
+    await writeFile(mediaPath, Buffer.from('image-bytes'));
+
+    prisma.import.findUnique.mockResolvedValueOnce({
+      id: 'import-1',
+    });
+    prisma.mediaFile.findMany.mockResolvedValueOnce([
+      {
+        id: 'media-1',
+        importId: 'import-1',
+        ankiIndex: '0',
+        originalName: 'front.png',
+        mimeType: 'image/png',
+        sizeKb: 1,
+        storageUrl: 'import-1/0-front.png',
+        type: 'IMAGE',
+        createdAt,
+      },
+    ]);
+    prisma.mediaFile.count.mockResolvedValueOnce(1);
+
+    await expect(
+      service.findImportMedia('import-1', {
+        page: 1,
+        limit: 20,
+        type: 'IMAGE',
+      }),
+    ).resolves.toEqual({
+      items: [
+        {
+          mediaId: 'media-1',
+          importId: 'import-1',
+          ankiIndex: '0',
+          originalName: 'front.png',
+          mimeType: 'image/png',
+          sizeKb: 1,
+          type: 'IMAGE',
+          downloadUrl: '/api/v1/media/media-1',
+          infoUrl: '/api/v1/media/media-1/info',
+          createdAt,
+        },
+      ],
+      page: 1,
+      limit: 20,
+      totalItems: 1,
+      totalPages: 1,
+    });
+
+    prisma.mediaFile.findUnique.mockResolvedValueOnce({
+      id: 'media-1',
+      importId: 'import-1',
+      ankiIndex: '0',
+      originalName: 'front.png',
+      mimeType: 'image/png',
+      sizeKb: 1,
+      storageUrl: 'import-1/0-front.png',
+      type: 'IMAGE',
+      createdAt,
+    });
+
+    await expect(service.findMediaInfo('media-1')).resolves.toEqual({
+      mediaId: 'media-1',
+      importId: 'import-1',
+      ankiIndex: '0',
+      originalName: 'front.png',
+      mimeType: 'image/png',
+      sizeKb: 1,
+      type: 'IMAGE',
+      downloadUrl: '/api/v1/media/media-1',
+      infoUrl: '/api/v1/media/media-1/info',
+      fileAvailable: true,
+      createdAt,
+    });
+
+    prisma.mediaFile.findUnique.mockResolvedValueOnce({
+      id: 'media-1',
+      importId: 'import-1',
+      ankiIndex: '0',
+      originalName: 'front.png',
+      mimeType: 'image/png',
+      sizeKb: 1,
+      storageUrl: 'import-1/0-front.png',
+      type: 'IMAGE',
+      createdAt,
+    });
+
+    const streamableFile = await service.readMediaFile('media-1');
+
+    expect(streamableFile.getHeaders()).toMatchObject({
+      type: 'image/png',
+      disposition: 'inline; filename="front.png"',
+      length: 11,
+    });
+
+    await rm(mediaPath, { force: true });
+
+    prisma.mediaFile.findUnique.mockResolvedValueOnce({
+      id: 'media-1',
+      importId: 'import-1',
+      ankiIndex: '0',
+      originalName: 'front.png',
+      mimeType: 'image/png',
+      sizeKb: 1,
+      storageUrl: 'import-1/0-front.png',
+      type: 'IMAGE',
+      createdAt,
+    });
+
+    await expect(service.readMediaFile('media-1')).rejects.toThrow(
+      'Media file not found.',
     );
   });
 
