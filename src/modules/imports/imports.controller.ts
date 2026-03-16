@@ -18,6 +18,7 @@ import {
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiBody,
+  ApiConflictResponse,
   ApiConsumes,
   ApiCreatedResponse,
   ApiNoContentResponse,
@@ -41,6 +42,7 @@ import { PaginatedCardsEntity } from './entities/paginated-cards.entity';
 import { UploadImportFileDto } from './dto/upload-import-file.dto';
 import { PaginatedMediaEntity } from './entities/paginated-media.entity';
 import { PaginatedNotesEntity } from './entities/paginated-notes.entity';
+import { ImportExportEntity } from './entities/import-export.entity';
 import { ImportDetailsEntity } from './entities/import-details.entity';
 import { ImportEntity } from './entities/import.entity';
 import { PaginatedDecksEntity } from './entities/paginated-decks.entity';
@@ -103,6 +105,24 @@ const importNotFoundExamples = {
     path: '/api/v1/imports/d5cc7d43-1483-4e4a-a520-77dfc4cbe010/media',
     method: 'GET',
   },
+  export: {
+    statusCode: 404,
+    timestamp: '2026-03-16T15:30:00.000Z',
+    message: 'Import not found.',
+    error: 'Not Found',
+    path: '/api/v1/imports/d5cc7d43-1483-4e4a-a520-77dfc4cbe010/export',
+    method: 'GET',
+  },
+};
+
+const importExportUnavailableExample = {
+  statusCode: 409,
+  timestamp: '2026-03-16T15:30:00.000Z',
+  message:
+    'Import export is only available for COMPLETED imports. Current status: PROCESSING.',
+  error: 'Conflict',
+  path: '/api/v1/imports/d5cc7d43-1483-4e4a-a520-77dfc4cbe010/export',
+  method: 'GET',
 };
 
 @ApiTags('Imports')
@@ -231,6 +251,30 @@ export class ImportsController {
     query: ListImportMediaQueryDto,
   ): Promise<PaginatedMediaEntity> {
     return this.importsService.findImportMedia(importId, query);
+  }
+
+  @Get(':importId/export')
+  @ApiOperation({
+    summary:
+      'Export a completed import as structured JSON with decks, notes, cards, and media.',
+  })
+  @ApiOkResponse({ type: ImportExportEntity })
+  @ApiNotFoundResponse({
+    description: 'Import not found.',
+    schema: { example: importNotFoundExamples.export },
+  })
+  @ApiConflictResponse({
+    description:
+      'Export is only available after processing completes successfully.',
+    schema: { example: importExportUnavailableExample },
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication is required.',
+  })
+  async export(
+    @Param('importId') importId: string,
+  ): Promise<ImportExportEntity> {
+    return this.importsService.exportImport(importId);
   }
 
   @Get(':id')

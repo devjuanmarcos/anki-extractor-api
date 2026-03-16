@@ -3,6 +3,7 @@ import { basename, join, resolve, sep } from 'node:path';
 import { copyFile, mkdir, rename, rm, stat } from 'node:fs/promises';
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -28,6 +29,7 @@ import { ListImportMediaQueryDto } from './dto/list-import-media-query.dto';
 import { ListImportNotesQueryDto } from './dto/list-import-notes-query.dto';
 import { CardEntity, CardSummaryEntity } from './entities/card.entity';
 import { DeckEntity } from './entities/deck.entity';
+import { ImportExportEntity } from './entities/import-export.entity';
 import { ImportDetailsEntity } from './entities/import-details.entity';
 import { ImportEntity } from './entities/import.entity';
 import { MediaEntity, MediaInfoEntity } from './entities/media.entity';
@@ -155,6 +157,172 @@ export class ImportsService {
     }
 
     return ImportDetailsEntity.fromRecord(importRecord);
+  }
+
+  async exportImport(importId: string): Promise<ImportExportEntity> {
+    const importRecord = await this.prisma.import.findUnique({
+      where: { id: importId },
+    });
+
+    if (!importRecord) {
+      throw new NotFoundException('Import not found.');
+    }
+
+    if (importRecord.status !== 'COMPLETED') {
+      throw new ConflictException(
+        this.buildImportExportUnavailableMessage(
+          importRecord.status,
+          importRecord.failureReason,
+        ),
+      );
+    }
+
+    const [decks, notes, cards, mediaFiles] = await Promise.all([
+      this.prisma.deck.findMany({
+        where: { importId },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      }),
+      this.prisma.note.findMany({
+        where: { importId },
+        orderBy: [{ ankiNoteId: 'asc' }, { id: 'asc' }],
+        include: {
+          model: {
+            select: {
+              id: true,
+              ankiModelId: true,
+              name: true,
+            },
+          },
+          cards: {
+            orderBy: [{ ordinal: 'asc' }, { id: 'asc' }],
+            select: {
+              id: true,
+              ankiCardId: true,
+              ordinal: true,
+              cardType: true,
+              queue: true,
+              deck: {
+                select: {
+                  id: true,
+                  ankiDeckId: true,
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.card.findMany({
+        where: { importId },
+        orderBy: [{ ordinal: 'asc' }, { ankiCardId: 'asc' }, { id: 'asc' }],
+        include: {
+          deck: {
+            select: {
+              id: true,
+              ankiDeckId: true,
+              name: true,
+            },
+          },
+          note: {
+            select: {
+              id: true,
+              ankiNoteId: true,
+              tags: true,
+              fields: true,
+              model: {
+                select: {
+                  id: true,
+                  ankiModelId: true,
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.mediaFile.findMany({
+        where: { importId },
+        orderBy: [{ ankiIndex: 'asc' }, { id: 'asc' }],
+      }),
+    ]);
+
+    const deckNotesCountByDeckId = new Map<string, number>();
+    const deckCardsCountByDeckId = new Map<string, number>();
+
+    for (const note of notes) {
+      const noteDeckIds = new Set(note.cards.map(card => card.deck.id));
+
+      for (const deckId of noteDeckIds) {
+        deckNotesCountByDeckId.set(
+          deckId,
+          (deckNotesCountByDeckId.get(deckId) ?? 0) + 1,
+        );
+      }
+    }
+
+    for (const card of cards) {
+      deckCardsCountByDeckId.set(
+        card.deck.id,
+        (deckCardsCountByDeckId.get(card.deck.id) ?? 0) + 1,
+      );
+    }
+
+    return ImportExportEntity.create({
+      import: ImportDetailsEntity.fromRecord(importRecord),
+      decks: decks.map(deck =>
+        DeckEntity.fromRecord({
+          ...deck,
+          notesCount: deckNotesCountByDeckId.get(deck.id) ?? 0,
+          cardsCount: deckCardsCountByDeckId.get(deck.id) ?? 0,
+        }),
+      ),
+      notes: notes.map(note =>
+        NoteEntity.fromRecord({
+          id: note.id,
+          importId: note.importId,
+          ankiNoteId: note.ankiNoteId,
+          model: note.model,
+          tags: note.tags,
+          fields: this.parsePersistedNoteFields(note.fields),
+          cards: note.cards.map(card => ({
+            id: card.id,
+            ankiCardId: card.ankiCardId,
+            ordinal: card.ordinal,
+            cardType: card.cardType,
+            queue: card.queue,
+            deck: card.deck,
+          })),
+          createdAt: note.createdAt,
+        }),
+      ),
+      cards: cards.map(card =>
+        CardSummaryEntity.fromRecord({
+          id: card.id,
+          importId: card.importId,
+          ankiCardId: card.ankiCardId,
+          ordinal: card.ordinal,
+          cardType: card.cardType,
+          queue: card.queue,
+          dueDate: card.dueDate,
+          interval: card.interval,
+          easeFactor: card.easeFactor,
+          repetitions: card.repetitions,
+          lapses: card.lapses,
+          deck: card.deck,
+          note: {
+            id: card.note.id,
+            ankiNoteId: card.note.ankiNoteId,
+            model: card.note.model,
+            tags: card.note.tags,
+            fieldPreviews: this.buildFieldPreviews(card.note.fields),
+          },
+          createdAt: card.createdAt,
+        }),
+      ),
+      media: mediaFiles.map(mediaFile =>
+        MediaEntity.fromRecord(this.toMediaShape(mediaFile)),
+      ),
+    });
   }
 
   async findImportDecks(
@@ -858,6 +1026,17 @@ export class ImportsService {
           .filter(Boolean),
       ),
     ];
+  }
+
+  private buildImportExportUnavailableMessage(
+    status: 'PROCESSING' | 'COMPLETED' | 'FAILED',
+    failureReason: string | null,
+  ): string {
+    if (status === 'FAILED' && failureReason) {
+      return `Import export is only available for COMPLETED imports. Current status: FAILED. Failure reason: ${failureReason}`;
+    }
+
+    return `Import export is only available for COMPLETED imports. Current status: ${status}.`;
   }
 
   private parsePersistedNoteFields(

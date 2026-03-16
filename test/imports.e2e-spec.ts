@@ -714,6 +714,209 @@ describe('Imports API (e2e)', () => {
     expect(existsSync(mediaPath)).toBe(false);
   });
 
+  it('exports a completed import as structured JSON and rejects unfinished imports', async () => {
+    const fileContents = await createApkgBuffer();
+    const server = app.getHttpServer() as Parameters<typeof request>[0];
+
+    const createResponse = await request(server)
+      .post('/api/v1/imports')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .attach('file', fileContents, 'english.apkg')
+      .expect(201);
+
+    const createdImport = createResponse.body as {
+      importId: string;
+    };
+
+    const exportResponse = await request(server)
+      .get(`/api/v1/imports/${createdImport.importId}/export`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+
+    const exportBody = exportResponse.body as {
+      import: {
+        importId: string;
+        originalName: string;
+        status: string;
+        decksCount: number;
+        notesCount: number;
+        cardsCount: number;
+        mediaCount: number;
+      };
+      decks: Array<{
+        deckId: string;
+        ankiDeckId: string;
+        name: string;
+        notesCount: number;
+        cardsCount: number;
+      }>;
+      notes: Array<{
+        noteId: string;
+        ankiNoteId: string;
+        fields: {
+          Front: {
+            value: string;
+            mediaReferences: Array<{ type: string; reference: string }>;
+          };
+        };
+        cards: Array<{ ankiCardId: string }>;
+      }>;
+      cards: Array<{
+        cardId: string;
+        ankiCardId: string;
+        ordinal: number;
+        cardType: number;
+        queue: number;
+        note: {
+          noteId: string;
+          ankiNoteId: string;
+        };
+      }>;
+      media: Array<{
+        mediaId: string;
+        originalName: string;
+        type: string;
+      }>;
+    };
+
+    expect(exportBody.import).toMatchObject({
+      importId: createdImport.importId,
+      originalName: 'english.apkg',
+      status: 'COMPLETED',
+      decksCount: 1,
+      notesCount: 1,
+      cardsCount: 2,
+      mediaCount: 2,
+    });
+    expect(exportBody.decks).toEqual([
+      expect.objectContaining({
+        importId: createdImport.importId,
+        ankiDeckId: '200',
+        name: 'English::Vocabulary::Advanced',
+        notesCount: 1,
+        cardsCount: 2,
+      }),
+    ]);
+    expect(exportBody.notes).toHaveLength(1);
+    expect(exportBody.notes[0]).toMatchObject({
+      importId: createdImport.importId,
+      ankiNoteId: '1',
+      tags: ['anki', 'imported'],
+      model: {
+        ankiModelId: '20',
+        name: 'Basic (and reversed card)',
+      },
+      fields: {
+        Front: {
+          value: 'Front text <img src="front.png">',
+          mediaReferences: [{ type: 'IMAGE', reference: 'front.png' }],
+        },
+        Back: {
+          value: 'Back text with <b>HTML</b>',
+          mediaReferences: [],
+        },
+        Audio: {
+          value: '[sound:audio.mp3]',
+          mediaReferences: [{ type: 'AUDIO', reference: 'audio.mp3' }],
+        },
+      },
+    });
+    expect(exportBody.notes[0]?.cards).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ ankiCardId: '10' }),
+        expect.objectContaining({ ankiCardId: '11' }),
+      ]),
+    );
+    expect(exportBody.cards).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          importId: createdImport.importId,
+          ankiCardId: '10',
+          ordinal: 0,
+          cardType: 0,
+          queue: 0,
+        }),
+        expect.objectContaining({
+          importId: createdImport.importId,
+          ankiCardId: '11',
+          ordinal: 1,
+          cardType: 2,
+          queue: 2,
+          dueDate: 42,
+          interval: 7,
+          easeFactor: 2500,
+          repetitions: 3,
+          lapses: 1,
+        }),
+      ]),
+    );
+    expect(
+      exportBody.cards.find(card => card.ankiCardId === '10'),
+    ).toMatchObject({
+      note: {
+        ankiNoteId: '1',
+      },
+    });
+    expect(exportBody.media).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          importId: createdImport.importId,
+          originalName: 'front.png',
+          type: 'IMAGE',
+        }),
+        expect.objectContaining({
+          importId: createdImport.importId,
+          originalName: 'audio.mp3',
+          type: 'AUDIO',
+        }),
+      ]),
+    );
+
+    const processingImport = await prisma.import.create({
+      data: {
+        originalName: 'processing.apkg',
+        fileSize: 1,
+        status: 'PROCESSING',
+      },
+    });
+    const failedImport = await prisma.import.create({
+      data: {
+        originalName: 'failed.apkg',
+        fileSize: 1,
+        status: 'FAILED',
+        failureReason: 'The Anki collection has invalid JSON in col.decks.',
+      },
+    });
+
+    const processingExportResponse = await request(server)
+      .get(`/api/v1/imports/${processingImport.id}/export`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(409);
+
+    expect(processingExportResponse.body).toMatchObject({
+      statusCode: 409,
+      message:
+        'Import export is only available for COMPLETED imports. Current status: PROCESSING.',
+      error: 'Conflict',
+      path: `/api/v1/imports/${processingImport.id}/export`,
+      method: 'GET',
+    });
+
+    const failedExportResponse = await request(server)
+      .get(`/api/v1/imports/${failedImport.id}/export`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(409);
+
+    expect(failedExportResponse.body).toMatchObject({
+      statusCode: 409,
+      message:
+        'Import export is only available for COMPLETED imports. Current status: FAILED. Failure reason: The Anki collection has invalid JSON in col.decks.',
+      error: 'Conflict',
+      path: `/api/v1/imports/${failedImport.id}/export`,
+      method: 'GET',
+    });
+  });
+
   it('returns the standardized 404 payload when an import does not exist', async () => {
     const server = app.getHttpServer() as Parameters<typeof request>[0];
     const missingImportId = 'missing-import';
@@ -783,6 +986,19 @@ describe('Imports API (e2e)', () => {
       message: 'Import not found.',
       error: 'Not Found',
       path: `/api/v1/imports/${missingImportId}/media`,
+      method: 'GET',
+    });
+
+    const exportResponse = await request(server)
+      .get(`/api/v1/imports/${missingImportId}/export`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(404);
+
+    expect(exportResponse.body).toMatchObject({
+      statusCode: 404,
+      message: 'Import not found.',
+      error: 'Not Found',
+      path: `/api/v1/imports/${missingImportId}/export`,
       method: 'GET',
     });
 

@@ -881,6 +881,403 @@ describe('ImportsService', () => {
     );
   });
 
+  it('exports a completed import as structured JSON and blocks unfinished imports', async () => {
+    const createdAt = new Date('2026-03-16T12:00:00.000Z');
+    const updatedAt = new Date('2026-03-16T12:05:00.000Z');
+    const deckId = 'deck-1';
+    const noteId = 'note-1';
+
+    prisma.import.findUnique
+      .mockResolvedValueOnce({
+        id: 'import-1',
+        originalName: 'english.apkg',
+        fileSize: 1024,
+        status: 'COMPLETED',
+        failureReason: null,
+        decksCount: 1,
+        notesCount: 1,
+        cardsCount: 2,
+        mediaCount: 2,
+        createdAt,
+        updatedAt,
+      })
+      .mockResolvedValueOnce({
+        id: 'import-processing',
+        originalName: 'processing.apkg',
+        fileSize: 256,
+        status: 'PROCESSING',
+        failureReason: null,
+        decksCount: 0,
+        notesCount: 0,
+        cardsCount: 0,
+        mediaCount: 0,
+        createdAt,
+        updatedAt,
+      })
+      .mockResolvedValueOnce({
+        id: 'import-failed',
+        originalName: 'failed.apkg',
+        fileSize: 256,
+        status: 'FAILED',
+        failureReason: 'The Anki collection has invalid JSON in col.decks.',
+        decksCount: 0,
+        notesCount: 0,
+        cardsCount: 0,
+        mediaCount: 0,
+        createdAt,
+        updatedAt,
+      });
+    prisma.deck.findMany.mockResolvedValueOnce([
+      {
+        id: deckId,
+        importId: 'import-1',
+        ankiDeckId: '200',
+        name: 'English::Vocabulary::Advanced',
+        description: 'Advanced deck',
+        createdAt,
+      },
+    ]);
+    prisma.note.findMany.mockResolvedValueOnce([
+      {
+        id: noteId,
+        importId: 'import-1',
+        ankiNoteId: '1',
+        tags: ['anki', 'imported'],
+        fields: {
+          Front: {
+            value: 'Front text <img src="front.png">',
+            mediaReferences: [{ type: 'IMAGE', reference: 'front.png' }],
+          },
+          Back: {
+            value: 'Back text with <b>HTML</b>',
+            mediaReferences: [],
+          },
+          Audio: {
+            value: '[sound:audio.mp3]',
+            mediaReferences: [{ type: 'AUDIO', reference: 'audio.mp3' }],
+          },
+        },
+        createdAt,
+        model: {
+          id: 'model-1',
+          ankiModelId: '20',
+          name: 'Basic (and reversed card)',
+        },
+        cards: [
+          {
+            id: 'card-1',
+            ankiCardId: '10',
+            ordinal: 0,
+            cardType: 0,
+            queue: 0,
+            deck: {
+              id: deckId,
+              ankiDeckId: '200',
+              name: 'English::Vocabulary::Advanced',
+            },
+          },
+          {
+            id: 'card-2',
+            ankiCardId: '11',
+            ordinal: 1,
+            cardType: 2,
+            queue: 2,
+            deck: {
+              id: deckId,
+              ankiDeckId: '200',
+              name: 'English::Vocabulary::Advanced',
+            },
+          },
+        ],
+      },
+    ]);
+    prisma.card.findMany.mockResolvedValueOnce([
+      {
+        id: 'card-1',
+        importId: 'import-1',
+        ankiCardId: '10',
+        ordinal: 0,
+        cardType: 0,
+        queue: 0,
+        dueDate: 0,
+        interval: 0,
+        easeFactor: 0,
+        repetitions: 0,
+        lapses: 0,
+        createdAt,
+        deck: {
+          id: deckId,
+          ankiDeckId: '200',
+          name: 'English::Vocabulary::Advanced',
+        },
+        note: {
+          id: noteId,
+          ankiNoteId: '1',
+          tags: ['anki', 'imported'],
+          fields: {
+            Front: {
+              value: 'Front text <img src="front.png">',
+              mediaReferences: [{ type: 'IMAGE', reference: 'front.png' }],
+            },
+          },
+          model: {
+            id: 'model-1',
+            ankiModelId: '20',
+            name: 'Basic (and reversed card)',
+          },
+        },
+      },
+      {
+        id: 'card-2',
+        importId: 'import-1',
+        ankiCardId: '11',
+        ordinal: 1,
+        cardType: 2,
+        queue: 2,
+        dueDate: 42,
+        interval: 7,
+        easeFactor: 2500,
+        repetitions: 3,
+        lapses: 1,
+        createdAt,
+        deck: {
+          id: deckId,
+          ankiDeckId: '200',
+          name: 'English::Vocabulary::Advanced',
+        },
+        note: {
+          id: noteId,
+          ankiNoteId: '1',
+          tags: ['anki', 'imported'],
+          fields: {
+            Front: {
+              value: 'Front text <img src="front.png">',
+              mediaReferences: [{ type: 'IMAGE', reference: 'front.png' }],
+            },
+          },
+          model: {
+            id: 'model-1',
+            ankiModelId: '20',
+            name: 'Basic (and reversed card)',
+          },
+        },
+      },
+    ]);
+    prisma.mediaFile.findMany.mockResolvedValueOnce([
+      {
+        id: 'media-1',
+        importId: 'import-1',
+        ankiIndex: '0',
+        originalName: 'front.png',
+        mimeType: 'image/png',
+        sizeKb: 1,
+        storageUrl: 'import-1/0-front.png',
+        type: 'IMAGE',
+        createdAt,
+      },
+      {
+        id: 'media-2',
+        importId: 'import-1',
+        ankiIndex: '1',
+        originalName: 'audio.mp3',
+        mimeType: 'audio/mpeg',
+        sizeKb: 1,
+        storageUrl: 'import-1/1-audio.mp3',
+        type: 'AUDIO',
+        createdAt,
+      },
+    ]);
+
+    await expect(service.exportImport('import-1')).resolves.toEqual({
+      import: {
+        importId: 'import-1',
+        originalName: 'english.apkg',
+        fileSize: 1024,
+        status: 'COMPLETED',
+        failureReason: null,
+        decksCount: 1,
+        notesCount: 1,
+        cardsCount: 2,
+        mediaCount: 2,
+        createdAt,
+        updatedAt,
+      },
+      decks: [
+        {
+          deckId,
+          importId: 'import-1',
+          ankiDeckId: '200',
+          name: 'English::Vocabulary::Advanced',
+          description: 'Advanced deck',
+          notesCount: 1,
+          cardsCount: 2,
+          createdAt,
+        },
+      ],
+      notes: [
+        {
+          noteId,
+          importId: 'import-1',
+          ankiNoteId: '1',
+          model: {
+            modelId: 'model-1',
+            ankiModelId: '20',
+            name: 'Basic (and reversed card)',
+          },
+          tags: ['anki', 'imported'],
+          fields: {
+            Front: {
+              value: 'Front text <img src="front.png">',
+              mediaReferences: [{ type: 'IMAGE', reference: 'front.png' }],
+            },
+            Back: {
+              value: 'Back text with <b>HTML</b>',
+              mediaReferences: [],
+            },
+            Audio: {
+              value: '[sound:audio.mp3]',
+              mediaReferences: [{ type: 'AUDIO', reference: 'audio.mp3' }],
+            },
+          },
+          cards: [
+            {
+              cardId: 'card-1',
+              ankiCardId: '10',
+              ordinal: 0,
+              cardType: 0,
+              queue: 0,
+              deck: {
+                deckId,
+                ankiDeckId: '200',
+                name: 'English::Vocabulary::Advanced',
+              },
+            },
+            {
+              cardId: 'card-2',
+              ankiCardId: '11',
+              ordinal: 1,
+              cardType: 2,
+              queue: 2,
+              deck: {
+                deckId,
+                ankiDeckId: '200',
+                name: 'English::Vocabulary::Advanced',
+              },
+            },
+          ],
+          createdAt,
+        },
+      ],
+      cards: [
+        {
+          cardId: 'card-1',
+          importId: 'import-1',
+          ankiCardId: '10',
+          ordinal: 0,
+          cardType: 0,
+          queue: 0,
+          dueDate: 0,
+          interval: 0,
+          easeFactor: 0,
+          repetitions: 0,
+          lapses: 0,
+          deck: {
+            deckId,
+            ankiDeckId: '200',
+            name: 'English::Vocabulary::Advanced',
+          },
+          note: {
+            noteId,
+            ankiNoteId: '1',
+            model: {
+              modelId: 'model-1',
+              ankiModelId: '20',
+              name: 'Basic (and reversed card)',
+            },
+            tags: ['anki', 'imported'],
+            fieldPreviews: [
+              {
+                name: 'Front',
+                valuePreview: 'Front text <img src="front.png">',
+                mediaReferencesCount: 1,
+              },
+            ],
+          },
+          createdAt,
+        },
+        {
+          cardId: 'card-2',
+          importId: 'import-1',
+          ankiCardId: '11',
+          ordinal: 1,
+          cardType: 2,
+          queue: 2,
+          dueDate: 42,
+          interval: 7,
+          easeFactor: 2500,
+          repetitions: 3,
+          lapses: 1,
+          deck: {
+            deckId,
+            ankiDeckId: '200',
+            name: 'English::Vocabulary::Advanced',
+          },
+          note: {
+            noteId,
+            ankiNoteId: '1',
+            model: {
+              modelId: 'model-1',
+              ankiModelId: '20',
+              name: 'Basic (and reversed card)',
+            },
+            tags: ['anki', 'imported'],
+            fieldPreviews: [
+              {
+                name: 'Front',
+                valuePreview: 'Front text <img src="front.png">',
+                mediaReferencesCount: 1,
+              },
+            ],
+          },
+          createdAt,
+        },
+      ],
+      media: [
+        {
+          mediaId: 'media-1',
+          importId: 'import-1',
+          ankiIndex: '0',
+          originalName: 'front.png',
+          mimeType: 'image/png',
+          sizeKb: 1,
+          type: 'IMAGE',
+          downloadUrl: '/api/v1/media/media-1',
+          infoUrl: '/api/v1/media/media-1/info',
+          createdAt,
+        },
+        {
+          mediaId: 'media-2',
+          importId: 'import-1',
+          ankiIndex: '1',
+          originalName: 'audio.mp3',
+          mimeType: 'audio/mpeg',
+          sizeKb: 1,
+          type: 'AUDIO',
+          downloadUrl: '/api/v1/media/media-2',
+          infoUrl: '/api/v1/media/media-2/info',
+          createdAt,
+        },
+      ],
+    });
+
+    await expect(service.exportImport('import-processing')).rejects.toThrow(
+      'Import export is only available for COMPLETED imports. Current status: PROCESSING.',
+    );
+    await expect(service.exportImport('import-failed')).rejects.toThrow(
+      'Import export is only available for COMPLETED imports. Current status: FAILED. Failure reason: The Anki collection has invalid JSON in col.decks.',
+    );
+  });
+
   it('lists decks for an import with aggregate counts', async () => {
     const createdAt = new Date('2026-03-16T12:00:00.000Z');
 
