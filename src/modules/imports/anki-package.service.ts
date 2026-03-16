@@ -98,6 +98,42 @@ export type PreparedImportSource = PreparedImportArchive & {
   };
 };
 
+export type PreparedImportCollection = PreparedImportArchive & {
+  raw: {
+    collection: RawAnkiCollectionRow | null;
+  };
+};
+
+export type ParsedAnkiDeck = {
+  ankiDeckId: string;
+  name: string;
+  description: string | null;
+};
+
+export type ParsedAnkiNoteModelField = {
+  ordinal: number;
+  name: string;
+};
+
+export type ParsedAnkiNoteModelTemplate = {
+  ordinal: number;
+  name: string;
+  questionFormat: string | null;
+  answerFormat: string | null;
+};
+
+export type ParsedAnkiNoteModel = {
+  ankiModelId: string;
+  name: string;
+  fields: ParsedAnkiNoteModelField[];
+  templates: ParsedAnkiNoteModelTemplate[];
+};
+
+export type ParsedAnkiCollectionMetadata = {
+  decks: ParsedAnkiDeck[];
+  noteModels: ParsedAnkiNoteModel[];
+};
+
 export class InvalidAnkiPackageError extends Error {
   constructor(message: string) {
     super(message);
@@ -138,18 +174,57 @@ export class AnkiPackageService {
     return preparedArchive;
   }
 
+  async readPreparedImportCollection(
+    importId: string,
+  ): Promise<PreparedImportCollection> {
+    const preparedArchive =
+      await this.resolvePreparedArchiveOrPrepare(importId);
+
+    return {
+      ...preparedArchive,
+      raw: {
+        collection: this.loadRawCollectionData(
+          preparedArchive.collectionFile.filePath,
+        ),
+      },
+    };
+  }
+
   async readPreparedImportSource(
     importId: string,
   ): Promise<PreparedImportSource> {
-    const extractedPath = this.getExtractedPath(importId);
-    const preparedArchive = existsSync(extractedPath)
-      ? await this.resolvePreparedArchiveFromWorkspace(importId)
-      : await this.prepareWorkspace(importId);
+    const preparedArchive =
+      await this.resolvePreparedArchiveOrPrepare(importId);
 
     return {
       ...preparedArchive,
       raw: this.loadRawSqliteData(preparedArchive.collectionFile.filePath),
     };
+  }
+
+  parseCollectionMetadata(
+    collection: RawAnkiCollectionRow | null,
+  ): ParsedAnkiCollectionMetadata {
+    if (!collection) {
+      throw new InvalidAnkiPackageError(
+        'The Anki collection does not contain collection metadata.',
+      );
+    }
+
+    return {
+      noteModels: this.parseNoteModels(collection.models),
+      decks: this.parseDecks(collection.decks),
+    };
+  }
+
+  private async resolvePreparedArchiveOrPrepare(
+    importId: string,
+  ): Promise<PreparedImportArchive> {
+    const extractedPath = this.getExtractedPath(importId);
+
+    return existsSync(extractedPath)
+      ? this.resolvePreparedArchiveFromWorkspace(importId)
+      : this.prepareWorkspace(importId);
   }
 
   private async resolvePreparedArchiveFromWorkspace(
@@ -365,6 +440,221 @@ export class AnkiPackageService {
         .prepare<[], RawAnkiCardRow>('SELECT * FROM cards ORDER BY id')
         .all(),
     }));
+  }
+
+  private loadRawCollectionData(
+    collectionPath: string,
+  ): RawAnkiCollectionRow | null {
+    return this.withReadonlyDatabase(
+      collectionPath,
+      database =>
+        database
+          .prepare<[], RawAnkiCollectionRow>('SELECT * FROM col LIMIT 1')
+          .get() ?? null,
+    );
+  }
+
+  private parseDecks(rawDecks: string): ParsedAnkiDeck[] {
+    const parsedDecks = this.parseCollectionJsonRecord(
+      rawDecks,
+      'decks',
+      'The Anki collection has invalid deck metadata in col.decks.',
+    );
+
+    return Object.entries(parsedDecks)
+      .sort(([leftKey], [rightKey]) =>
+        this.compareAnkiIdentifiers(leftKey, rightKey),
+      )
+      .map(([entryKey, rawDeck]) => {
+        const deck = this.asJsonObject(
+          rawDeck,
+          'The Anki collection has invalid deck metadata in col.decks.',
+        );
+
+        return {
+          ankiDeckId: this.resolveAnkiIdentifier(deck.id, entryKey),
+          name: this.requireNonEmptyString(
+            deck.name,
+            'The Anki collection has invalid deck metadata in col.decks.',
+          ),
+          description: this.resolveOptionalString(deck.desc),
+        };
+      });
+  }
+
+  private parseNoteModels(rawModels: string): ParsedAnkiNoteModel[] {
+    const parsedModels = this.parseCollectionJsonRecord(
+      rawModels,
+      'models',
+      'The Anki collection has invalid note model metadata in col.models.',
+    );
+
+    return Object.entries(parsedModels)
+      .sort(([leftKey], [rightKey]) =>
+        this.compareAnkiIdentifiers(leftKey, rightKey),
+      )
+      .map(([entryKey, rawModel]) => {
+        const model = this.asJsonObject(
+          rawModel,
+          'The Anki collection has invalid note model metadata in col.models.',
+        );
+        const rawFields = this.requireArray(
+          model.flds,
+          'The Anki collection has invalid note model metadata in col.models.',
+        );
+        const rawTemplates = this.requireArray(
+          model.tmpls,
+          'The Anki collection has invalid note model metadata in col.models.',
+        );
+
+        return {
+          ankiModelId: this.resolveAnkiIdentifier(model.id, entryKey),
+          name: this.requireNonEmptyString(
+            model.name,
+            'The Anki collection has invalid note model metadata in col.models.',
+          ),
+          fields: rawFields.map((rawField, index) =>
+            this.parseNoteModelField(rawField, index),
+          ),
+          templates: rawTemplates.map((rawTemplate, index) =>
+            this.parseNoteModelTemplate(rawTemplate, index),
+          ),
+        };
+      });
+  }
+
+  private parseNoteModelField(
+    rawField: unknown,
+    index: number,
+  ): ParsedAnkiNoteModelField {
+    const field = this.asJsonObject(
+      rawField,
+      'The Anki collection has invalid note model metadata in col.models.',
+    );
+
+    return {
+      ordinal: this.resolveOrdinal(field.ord, index),
+      name: this.requireNonEmptyString(
+        field.name,
+        'The Anki collection has invalid note model metadata in col.models.',
+      ),
+    };
+  }
+
+  private parseNoteModelTemplate(
+    rawTemplate: unknown,
+    index: number,
+  ): ParsedAnkiNoteModelTemplate {
+    const template = this.asJsonObject(
+      rawTemplate,
+      'The Anki collection has invalid note model metadata in col.models.',
+    );
+
+    return {
+      ordinal: this.resolveOrdinal(template.ord, index),
+      name: this.requireNonEmptyString(
+        template.name,
+        'The Anki collection has invalid note model metadata in col.models.',
+      ),
+      questionFormat: this.resolveOptionalString(template.qfmt),
+      answerFormat: this.resolveOptionalString(template.afmt),
+    };
+  }
+
+  private parseCollectionJsonRecord(
+    value: string,
+    columnName: 'models' | 'decks',
+    invalidMetadataMessage: string,
+  ): Record<string, unknown> {
+    let parsed: unknown;
+
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      throw new InvalidAnkiPackageError(
+        `The Anki collection has invalid JSON in col.${columnName}.`,
+      );
+    }
+
+    return this.asJsonObject(parsed, invalidMetadataMessage);
+  }
+
+  private asJsonObject(
+    value: unknown,
+    errorMessage: string,
+  ): Record<string, unknown> {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+
+    throw new InvalidAnkiPackageError(errorMessage);
+  }
+
+  private requireArray(value: unknown, errorMessage: string): unknown[] {
+    if (Array.isArray(value)) {
+      return value;
+    }
+
+    throw new InvalidAnkiPackageError(errorMessage);
+  }
+
+  private requireNonEmptyString(value: unknown, errorMessage: string): string {
+    if (typeof value === 'string' && value.length > 0) {
+      return value;
+    }
+
+    throw new InvalidAnkiPackageError(errorMessage);
+  }
+
+  private resolveOptionalString(value: unknown): string | null {
+    return typeof value === 'string' ? value : null;
+  }
+
+  private resolveAnkiIdentifier(value: unknown, fallback: string): string {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return String(value);
+    }
+
+    if (typeof value === 'string' && value.length > 0) {
+      return value;
+    }
+
+    if (fallback.length > 0) {
+      return fallback;
+    }
+
+    throw new InvalidAnkiPackageError(
+      'The Anki collection has invalid metadata identifiers.',
+    );
+  }
+
+  private resolveOrdinal(value: unknown, fallback: number): number {
+    if (typeof value === 'number' && Number.isInteger(value)) {
+      return value;
+    }
+
+    return fallback;
+  }
+
+  private compareAnkiIdentifiers(left: string, right: string): number {
+    const leftNumber = Number(left);
+    const rightNumber = Number(right);
+    const leftIsNumeric = Number.isFinite(leftNumber);
+    const rightIsNumeric = Number.isFinite(rightNumber);
+
+    if (leftIsNumeric && rightIsNumeric) {
+      return leftNumber - rightNumber;
+    }
+
+    if (leftIsNumeric) {
+      return -1;
+    }
+
+    if (rightIsNumeric) {
+      return 1;
+    }
+
+    return left.localeCompare(right);
   }
 
   private withReadonlyDatabase<T>(

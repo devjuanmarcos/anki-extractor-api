@@ -10,25 +10,55 @@ import { PrismaService } from '../../common/services/prisma.service';
 import { AnkiPackageService } from './anki-package.service';
 import { ImportsService } from './imports.service';
 
+type MockTransactionClient = {
+  import: {
+    update: jest.Mock;
+  };
+  deck: {
+    createMany: jest.Mock;
+  };
+  noteModel: {
+    createMany: jest.Mock;
+  };
+};
+
 describe('ImportsService', () => {
   let service: ImportsService;
   let ankiPackageService: AnkiPackageService;
   let prisma: {
+    $transaction: jest.Mock;
     import: {
       create: jest.Mock;
       delete: jest.Mock;
       update: jest.Mock;
     };
+    deck: {
+      createMany: jest.Mock;
+    };
+    noteModel: {
+      createMany: jest.Mock;
+    };
   };
 
   beforeEach(async () => {
     prisma = {
+      $transaction: jest.fn(),
       import: {
         create: jest.fn(),
         delete: jest.fn(),
         update: jest.fn(),
       },
+      deck: {
+        createMany: jest.fn(),
+      },
+      noteModel: {
+        createMany: jest.fn(),
+      },
     };
+    prisma.$transaction.mockImplementation(
+      (callback: (client: MockTransactionClient) => Promise<unknown>) =>
+        callback(prisma),
+    );
 
     ankiPackageService = new AnkiPackageService();
     service = new ImportsService(
@@ -49,7 +79,7 @@ describe('ImportsService', () => {
     ]);
   });
 
-  it('creates a processing import, extracts the archive, and exposes raw package sources', async () => {
+  it('creates a processing import, extracts the archive, and persists decks and note models', async () => {
     await mkdir(config.storage.importsIncomingDir, { recursive: true });
 
     const stagedFilePath = join(
@@ -78,11 +108,53 @@ describe('ImportsService', () => {
         status: 'PROCESSING',
       },
     });
-    expect(prisma.import.update).not.toHaveBeenCalled();
     expect(result).toEqual({
       importId: 'import-1',
       originalName: 'english.apkg',
       status: 'PROCESSING',
+    });
+    expect(prisma.deck.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          importId: 'import-1',
+          ankiDeckId: '200',
+          name: 'English::Vocabulary::Advanced',
+          description: 'Advanced deck',
+        },
+      ],
+    });
+    expect(prisma.noteModel.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          importId: 'import-1',
+          ankiModelId: '20',
+          name: 'Basic (and reversed card)',
+          fields: [
+            { ordinal: 0, name: 'Front' },
+            { ordinal: 1, name: 'Back' },
+          ],
+          templates: [
+            {
+              ordinal: 0,
+              name: 'Card 1',
+              questionFormat: '{{Front}}',
+              answerFormat: '{{FrontSide}}\n\n<hr id=answer>\n\n{{Back}}',
+            },
+            {
+              ordinal: 1,
+              name: 'Card 2',
+              questionFormat: '{{Back}}',
+              answerFormat: '{{FrontSide}}\n\n<hr id=answer>\n\n{{Front}}',
+            },
+          ],
+        },
+      ],
+    });
+    expect(prisma.import.update).toHaveBeenCalledWith({
+      where: { id: 'import-1' },
+      data: {
+        decksCount: 1,
+      },
     });
 
     const storedFilePath = join(
@@ -114,11 +186,16 @@ describe('ImportsService', () => {
       '0',
       '1',
     ]);
-    expect(preparedSource.raw.collection?.models).toContain('Basic');
-    expect(preparedSource.raw.collection?.decks).toContain('Default');
+    expect(preparedSource.raw.collection?.models).toContain(
+      'Basic (and reversed card)',
+    );
+    expect(preparedSource.raw.collection?.decks).toContain(
+      'English::Vocabulary::Advanced',
+    );
     expect(preparedSource.raw.notes).toEqual([
       expect.objectContaining({
         id: 1,
+        mid: 20,
         flds: 'Front text\x1fBack text',
       }),
     ]);
@@ -126,7 +203,7 @@ describe('ImportsService', () => {
       expect.objectContaining({
         id: 10,
         nid: 1,
-        did: 100,
+        did: 200,
       }),
     ]);
   });
@@ -172,6 +249,8 @@ describe('ImportsService', () => {
           'The .apkg package does not contain collection.anki2 or collection.anki21.',
       },
     });
+    expect(prisma.deck.createMany).not.toHaveBeenCalled();
+    expect(prisma.noteModel.createMany).not.toHaveBeenCalled();
     expect(prisma.import.delete).not.toHaveBeenCalled();
     expect(existsSync(join(config.storage.importsTempDir, 'import-2'))).toBe(
       false,
@@ -219,7 +298,54 @@ describe('ImportsService', () => {
           'The .apkg package does not contain a readable Anki SQLite collection.',
       },
     });
+    expect(prisma.deck.createMany).not.toHaveBeenCalled();
+    expect(prisma.noteModel.createMany).not.toHaveBeenCalled();
     expect(existsSync(join(config.storage.importsTempDir, 'import-3'))).toBe(
+      false,
+    );
+  });
+
+  it('marks the import as failed without persisting metadata when col.models JSON is invalid', async () => {
+    await mkdir(config.storage.importsIncomingDir, { recursive: true });
+
+    const stagedFilePath = join(
+      config.storage.importsIncomingDir,
+      'invalid-models.upload',
+    );
+
+    await writeApkgArchive(stagedFilePath, { invalidModelsJson: true });
+
+    prisma.import.create.mockResolvedValue({
+      id: 'import-4',
+      originalName: 'invalid-models.apkg',
+      status: 'PROCESSING',
+    });
+    prisma.import.update.mockResolvedValue({
+      id: 'import-4',
+      originalName: 'invalid-models.apkg',
+      status: 'FAILED',
+      failureReason: 'The Anki collection has invalid JSON in col.models.',
+    });
+
+    await expect(
+      service.create({
+        originalName: 'invalid-models.apkg',
+        size: 256,
+        temporaryFilePath: stagedFilePath,
+      }),
+    ).rejects.toThrow('The Anki collection has invalid JSON in col.models.');
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.deck.createMany).not.toHaveBeenCalled();
+    expect(prisma.noteModel.createMany).not.toHaveBeenCalled();
+    expect(prisma.import.update).toHaveBeenCalledWith({
+      where: { id: 'import-4' },
+      data: {
+        status: 'FAILED',
+        failureReason: 'The Anki collection has invalid JSON in col.models.',
+      },
+    });
+    expect(existsSync(join(config.storage.importsTempDir, 'import-4'))).toBe(
       false,
     );
   });
@@ -253,6 +379,8 @@ async function writeApkgArchive(
   options: {
     withCollection?: boolean;
     corruptCollection?: boolean;
+    invalidModelsJson?: boolean;
+    invalidDecksJson?: boolean;
   } = {},
 ): Promise<void> {
   const fixtureRoot = await mkdtemp(join(tmpdir(), 'anki-package-fixture-'));
@@ -266,7 +394,10 @@ async function writeApkgArchive(
       if (options.corruptCollection) {
         await writeFile(collectionPath, Buffer.from('not-a-sqlite-file'));
       } else {
-        createSqliteCollection(collectionPath);
+        createSqliteCollection(collectionPath, {
+          invalidModelsJson: options.invalidModelsJson,
+          invalidDecksJson: options.invalidDecksJson,
+        });
       }
 
       zip.addLocalFile(collectionPath);
@@ -285,7 +416,13 @@ async function writeApkgArchive(
   }
 }
 
-function createSqliteCollection(collectionPath: string): void {
+function createSqliteCollection(
+  collectionPath: string,
+  options: {
+    invalidModelsJson?: boolean;
+    invalidDecksJson?: boolean;
+  } = {},
+): void {
   const database = new Database(collectionPath);
 
   try {
@@ -360,21 +497,38 @@ function createSqliteCollection(collectionPath: string): void {
         0,
         0,
         JSON.stringify({ nextPos: 1 }),
-        JSON.stringify({
-          '10': {
-            id: 10,
-            name: 'Basic',
-            flds: [{ name: 'Front' }, { name: 'Back' }],
-            tmpls: [{ name: 'Card 1' }],
-          },
-        }),
-        JSON.stringify({
-          '100': {
-            id: 100,
-            name: 'Default',
-            desc: 'Default deck',
-          },
-        }),
+        options.invalidModelsJson
+          ? '{"20":'
+          : JSON.stringify({
+              '20': {
+                id: 20,
+                name: 'Basic (and reversed card)',
+                flds: [{ name: 'Front' }, { name: 'Back' }],
+                tmpls: [
+                  {
+                    name: 'Card 1',
+                    ord: 0,
+                    qfmt: '{{Front}}',
+                    afmt: '{{FrontSide}}\n\n<hr id=answer>\n\n{{Back}}',
+                  },
+                  {
+                    name: 'Card 2',
+                    ord: 1,
+                    qfmt: '{{Back}}',
+                    afmt: '{{FrontSide}}\n\n<hr id=answer>\n\n{{Front}}',
+                  },
+                ],
+              },
+            }),
+        options.invalidDecksJson
+          ? '{"200":'
+          : JSON.stringify({
+              '200': {
+                id: 200,
+                name: 'English::Vocabulary::Advanced',
+                desc: 'Advanced deck',
+              },
+            }),
         JSON.stringify({}),
         JSON.stringify({}),
       );
@@ -390,7 +544,7 @@ function createSqliteCollection(collectionPath: string): void {
       .run(
         1,
         'note-guid',
-        10,
+        20,
         1,
         0,
         'anki imported',
@@ -409,7 +563,7 @@ function createSqliteCollection(collectionPath: string): void {
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
       )
-      .run(10, 1, 100, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '');
+      .run(10, 1, 200, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '');
   } finally {
     database.close();
   }

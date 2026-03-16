@@ -10,6 +10,7 @@ import {
 import { PrismaService } from '../../common/services/prisma.service';
 import { config } from '../../config/config';
 import {
+  ParsedAnkiCollectionMetadata,
   AnkiPackageService,
   InvalidAnkiPackageError,
 } from './anki-package.service';
@@ -48,7 +49,14 @@ export class ImportsService {
       const workspacePath = this.getWorkspacePath(importId);
       await mkdir(workspacePath, { recursive: true });
       await rename(dto.temporaryFilePath, this.getSourceArchivePath(importId));
-      await this.ankiPackageService.prepareWorkspace(importId);
+      const preparedCollection =
+        await this.ankiPackageService.readPreparedImportCollection(importId);
+      const collectionMetadata =
+        this.ankiPackageService.parseCollectionMetadata(
+          preparedCollection.raw.collection,
+        );
+
+      await this.persistCollectionMetadata(importId, collectionMetadata);
 
       return ImportEntity.fromRecord(createdImport);
     } catch (error) {
@@ -99,6 +107,43 @@ export class ImportsService {
       mkdir(config.storage.importsIncomingDir, { recursive: true }),
       mkdir(config.storage.mediaDir, { recursive: true }),
     ]);
+  }
+
+  private async persistCollectionMetadata(
+    importId: string,
+    collectionMetadata: ParsedAnkiCollectionMetadata,
+  ): Promise<void> {
+    await this.prisma.$transaction(async transaction => {
+      if (collectionMetadata.decks.length > 0) {
+        await transaction.deck.createMany({
+          data: collectionMetadata.decks.map(deck => ({
+            importId,
+            ankiDeckId: deck.ankiDeckId,
+            name: deck.name,
+            description: deck.description,
+          })),
+        });
+      }
+
+      if (collectionMetadata.noteModels.length > 0) {
+        await transaction.noteModel.createMany({
+          data: collectionMetadata.noteModels.map(noteModel => ({
+            importId,
+            ankiModelId: noteModel.ankiModelId,
+            name: noteModel.name,
+            fields: noteModel.fields,
+            templates: noteModel.templates,
+          })),
+        });
+      }
+
+      await transaction.import.update({
+        where: { id: importId },
+        data: {
+          decksCount: collectionMetadata.decks.length,
+        },
+      });
+    });
   }
 
   private getWorkspacePath(importId: string): string {
