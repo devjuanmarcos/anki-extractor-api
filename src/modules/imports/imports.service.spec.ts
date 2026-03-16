@@ -29,6 +29,9 @@ type MockTransactionClient = {
   card: {
     createMany: jest.Mock;
   };
+  mediaFile: {
+    createMany: jest.Mock;
+  };
 };
 
 describe('ImportsService', () => {
@@ -56,6 +59,9 @@ describe('ImportsService', () => {
     card: {
       createMany: jest.Mock;
     };
+    mediaFile: {
+      createMany: jest.Mock;
+    };
   };
 
   beforeEach(async () => {
@@ -79,6 +85,9 @@ describe('ImportsService', () => {
         findMany: jest.fn(),
       },
       card: {
+        createMany: jest.fn(),
+      },
+      mediaFile: {
         createMany: jest.fn(),
       },
     };
@@ -252,12 +261,35 @@ describe('ImportsService', () => {
         },
       ],
     });
+    expect(prisma.mediaFile.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          importId: 'import-1',
+          ankiIndex: '0',
+          originalName: 'front.png',
+          mimeType: 'image/png',
+          sizeKb: 1,
+          storageUrl: 'import-1/0-front.png',
+          type: 'IMAGE',
+        },
+        {
+          importId: 'import-1',
+          ankiIndex: '1',
+          originalName: 'audio.mp3',
+          mimeType: 'audio/mpeg',
+          sizeKb: 1,
+          storageUrl: 'import-1/1-audio.mp3',
+          type: 'AUDIO',
+        },
+      ],
+    });
     expect(prisma.import.update).toHaveBeenCalledWith({
       where: { id: 'import-1' },
       data: {
         decksCount: 1,
         notesCount: 1,
         cardsCount: 2,
+        mediaCount: 2,
       },
     });
 
@@ -280,6 +312,12 @@ describe('ImportsService', () => {
     expect(
       existsSync(join(config.storage.mediaDir, 'import-1', 'source.apkg')),
     ).toBe(false);
+    expect(
+      existsSync(join(config.storage.mediaDir, 'import-1', '0-front.png')),
+    ).toBe(true);
+    expect(
+      existsSync(join(config.storage.mediaDir, 'import-1', '1-audio.mp3')),
+    ).toBe(true);
 
     const preparedSource =
       await ankiPackageService.readPreparedImportSource('import-1');
@@ -317,6 +355,84 @@ describe('ImportsService', () => {
         ord: 1,
       }),
     ]);
+  });
+
+  it('skips mapped media files that are missing from the package without failing the import', async () => {
+    await mkdir(config.storage.importsIncomingDir, { recursive: true });
+
+    const stagedFilePath = join(
+      config.storage.importsIncomingDir,
+      'missing-media-file.upload',
+    );
+
+    await writeApkgArchive(stagedFilePath, {
+      omitMediaFileIndexes: ['1'],
+    });
+
+    prisma.import.create.mockResolvedValue({
+      id: 'import-8',
+      originalName: 'missing-media-file.apkg',
+      status: 'PROCESSING',
+    });
+    prisma.deck.findMany.mockResolvedValue([
+      {
+        id: 'deck-1',
+        ankiDeckId: '200',
+      },
+    ]);
+    prisma.noteModel.findMany.mockResolvedValue([
+      {
+        id: 'note-model-1',
+        ankiModelId: '20',
+      },
+    ]);
+    prisma.note.findMany.mockResolvedValue([
+      {
+        id: 'note-1',
+        ankiNoteId: '1',
+      },
+    ]);
+
+    await expect(
+      service.create({
+        originalName: 'missing-media-file.apkg',
+        size: 512,
+        temporaryFilePath: stagedFilePath,
+      }),
+    ).resolves.toEqual({
+      importId: 'import-8',
+      originalName: 'missing-media-file.apkg',
+      status: 'PROCESSING',
+    });
+
+    expect(prisma.mediaFile.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          importId: 'import-8',
+          ankiIndex: '0',
+          originalName: 'front.png',
+          mimeType: 'image/png',
+          sizeKb: 1,
+          storageUrl: 'import-8/0-front.png',
+          type: 'IMAGE',
+        },
+      ],
+    });
+    expect(prisma.import.update).toHaveBeenCalledWith({
+      where: { id: 'import-8' },
+      data: {
+        decksCount: 1,
+        notesCount: 1,
+        cardsCount: 2,
+        mediaCount: 1,
+      },
+    });
+    expect(
+      existsSync(join(config.storage.mediaDir, 'import-8', '0-front.png')),
+    ).toBe(true);
+    expect(
+      existsSync(join(config.storage.mediaDir, 'import-8', '1-audio.mp3')),
+    ).toBe(false);
   });
 
   it('marks the import as failed and removes the workspace when the archive has no collection file', async () => {
@@ -668,6 +784,7 @@ async function writeApkgArchive(
     missingNoteModelReference?: boolean;
     missingCardNoteReference?: boolean;
     missingCardDeckReference?: boolean;
+    omitMediaFileIndexes?: string[];
   } = {},
 ): Promise<void> {
   const fixtureRoot = await mkdtemp(join(tmpdir(), 'anki-package-fixture-'));
@@ -697,8 +814,12 @@ async function writeApkgArchive(
       'media',
       Buffer.from(JSON.stringify({ '0': 'front.png', '1': 'audio.mp3' })),
     );
-    zip.addFile('0', Buffer.from('image-bytes'));
-    zip.addFile('1', Buffer.from('audio-bytes'));
+    if (!options.omitMediaFileIndexes?.includes('0')) {
+      zip.addFile('0', Buffer.from('image-bytes'));
+    }
+    if (!options.omitMediaFileIndexes?.includes('1')) {
+      zip.addFile('1', Buffer.from('audio-bytes'));
+    }
 
     await writeFile(targetFilePath, zip.toBuffer());
   } finally {

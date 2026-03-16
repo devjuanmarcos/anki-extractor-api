@@ -107,6 +107,7 @@ describe('Imports API (e2e)', () => {
       decksCount: 1,
       notesCount: 1,
       cardsCount: 2,
+      mediaCount: 2,
     });
 
     const persistedDecks = await prisma.deck.findMany({
@@ -131,6 +132,10 @@ describe('Imports API (e2e)', () => {
         deck: true,
       },
       orderBy: { ordinal: 'asc' },
+    });
+    const persistedMediaFiles = await prisma.mediaFile.findMany({
+      where: { importId: body.importId },
+      orderBy: { ankiIndex: 'asc' },
     });
 
     expect(persistedDecks).toEqual([
@@ -220,6 +225,26 @@ describe('Imports API (e2e)', () => {
     });
     expect(persistedCards[1]?.note.ankiNoteId).toBe('1');
     expect(persistedCards[1]?.deck.ankiDeckId).toBe('200');
+    expect(persistedMediaFiles).toEqual([
+      expect.objectContaining({
+        importId: body.importId,
+        ankiIndex: '0',
+        originalName: 'front.png',
+        mimeType: 'image/png',
+        sizeKb: 1,
+        storageUrl: `${body.importId}/0-front.png`,
+        type: 'IMAGE',
+      }),
+      expect.objectContaining({
+        importId: body.importId,
+        ankiIndex: '1',
+        originalName: 'audio.mp3',
+        mimeType: 'audio/mpeg',
+        sizeKb: 1,
+        storageUrl: `${body.importId}/1-audio.mp3`,
+        type: 'AUDIO',
+      }),
+    ]);
 
     const workspacePath = join(process.env.IMPORTS_TEMP_DIR!, body.importId);
     const storedFilePath = join(workspacePath, 'source.apkg');
@@ -234,6 +259,74 @@ describe('Imports API (e2e)', () => {
     expect(
       existsSync(
         join(process.env.MEDIA_STORAGE_DIR!, body.importId, 'source.apkg'),
+      ),
+    ).toBe(false);
+    expect(
+      existsSync(
+        join(process.env.MEDIA_STORAGE_DIR!, body.importId, '0-front.png'),
+      ),
+    ).toBe(true);
+    expect(
+      existsSync(
+        join(process.env.MEDIA_STORAGE_DIR!, body.importId, '1-audio.mp3'),
+      ),
+    ).toBe(true);
+  });
+
+  it('skips media mapped in the media file when the binary is missing from the package', async () => {
+    const fileContents = await createApkgBuffer({
+      omitMediaFileIndexes: ['1'],
+    });
+    const server = app.getHttpServer() as Parameters<typeof request>[0];
+
+    const response = await request(server)
+      .post('/api/v1/imports')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .attach('file', fileContents, 'missing-media-file.apkg')
+      .expect(201);
+
+    const body = response.body as {
+      importId: string;
+      originalName: string;
+      status: string;
+    };
+
+    expect(body.originalName).toBe('missing-media-file.apkg');
+    expect(body.status).toBe('PROCESSING');
+
+    const createdImport = await prisma.import.findUnique({
+      where: { id: body.importId },
+    });
+    const persistedMediaFiles = await prisma.mediaFile.findMany({
+      where: { importId: body.importId },
+      orderBy: { ankiIndex: 'asc' },
+    });
+
+    expect(createdImport).toMatchObject({
+      id: body.importId,
+      originalName: 'missing-media-file.apkg',
+      status: 'PROCESSING',
+      mediaCount: 1,
+    });
+    expect(persistedMediaFiles).toEqual([
+      expect.objectContaining({
+        importId: body.importId,
+        ankiIndex: '0',
+        originalName: 'front.png',
+        mimeType: 'image/png',
+        sizeKb: 1,
+        storageUrl: `${body.importId}/0-front.png`,
+        type: 'IMAGE',
+      }),
+    ]);
+    expect(
+      existsSync(
+        join(process.env.MEDIA_STORAGE_DIR!, body.importId, '0-front.png'),
+      ),
+    ).toBe(true);
+    expect(
+      existsSync(
+        join(process.env.MEDIA_STORAGE_DIR!, body.importId, '1-audio.mp3'),
       ),
     ).toBe(false);
   });
@@ -438,6 +531,7 @@ async function createApkgBuffer(
     invalidDecksJson?: boolean;
     missingNoteModelReference?: boolean;
     missingCardDeckReference?: boolean;
+    omitMediaFileIndexes?: string[];
   } = {},
 ): Promise<Buffer> {
   const fixtureRoot = await mkdtemp(join(tmpdir(), 'anki-package-fixture-'));
@@ -460,8 +554,12 @@ async function createApkgBuffer(
       'media',
       Buffer.from(JSON.stringify({ '0': 'front.png', '1': 'audio.mp3' })),
     );
-    zip.addFile('0', Buffer.from('image-bytes'));
-    zip.addFile('1', Buffer.from('audio-bytes'));
+    if (!options.omitMediaFileIndexes?.includes('0')) {
+      zip.addFile('0', Buffer.from('image-bytes'));
+    }
+    if (!options.omitMediaFileIndexes?.includes('1')) {
+      zip.addFile('1', Buffer.from('audio-bytes'));
+    }
 
     return zip.toBuffer();
   } finally {

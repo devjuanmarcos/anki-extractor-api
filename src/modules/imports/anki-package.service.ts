@@ -1,9 +1,17 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { Injectable } from '@nestjs/common';
 import AdmZip from 'adm-zip';
 import Database from 'better-sqlite3';
+import { lookup as lookupMimeType } from 'mime-types';
 import { config } from '../../config/config';
 
 const COLLECTION_FILENAMES = ['collection.anki21', 'collection.anki2'] as const;
@@ -176,6 +184,24 @@ export type ParsedAnkiCard = {
   lapses: number;
 };
 
+export type ParsedAnkiMediaFile = {
+  ankiIndex: string;
+  originalName: string;
+  filePath: string;
+  relativePath: string;
+  sizeBytes: number;
+  mimeType: string;
+  type: 'IMAGE' | 'AUDIO' | 'VIDEO' | 'OTHER';
+};
+
+export type ParsedAnkiMediaCollection = {
+  files: ParsedAnkiMediaFile[];
+  missingFiles: Array<{
+    ankiIndex: string;
+    originalName: string;
+  }>;
+};
+
 export class InvalidAnkiPackageError extends Error {
   constructor(message: string) {
     super(message);
@@ -341,6 +367,41 @@ export class AnkiPackageService {
       reps: rawCard.reps,
       lapses: rawCard.lapses,
     }));
+  }
+
+  async parseMediaFiles(
+    preparedArchive: PreparedImportArchive,
+  ): Promise<ParsedAnkiMediaCollection> {
+    const mediaMap = await this.readMediaMap(preparedArchive.mediaMapPath);
+    const physicalFilesByIndex = new Map(
+      preparedArchive.mediaFiles.map(file => [file.index, file]),
+    );
+
+    return {
+      files: preparedArchive.mediaFiles.map(file => {
+        const originalName = mediaMap.get(file.index) ?? file.index;
+        const mimeType = this.detectMimeType(originalName);
+
+        return {
+          ankiIndex: file.index,
+          originalName,
+          filePath: file.filePath,
+          relativePath: file.relativePath,
+          sizeBytes: file.sizeBytes,
+          mimeType,
+          type: this.classifyMediaType(mimeType),
+        };
+      }),
+      missingFiles: [...mediaMap.entries()]
+        .filter(([ankiIndex]) => !physicalFilesByIndex.has(ankiIndex))
+        .sort(([leftIndex], [rightIndex]) =>
+          this.compareAnkiIdentifiers(leftIndex, rightIndex),
+        )
+        .map(([ankiIndex, originalName]) => ({
+          ankiIndex,
+          originalName,
+        })),
+    };
   }
 
   private async resolvePreparedArchiveOrPrepare(
@@ -807,6 +868,62 @@ export class AnkiPackageService {
 
   private parseTags(rawTags: string): string[] {
     return rawTags.split(/\s+/).filter(tag => tag.length > 0);
+  }
+
+  private async readMediaMap(
+    mediaMapPath?: string,
+  ): Promise<Map<string, string>> {
+    if (!mediaMapPath) {
+      return new Map();
+    }
+
+    let parsedMediaMap: unknown;
+
+    try {
+      parsedMediaMap = JSON.parse(await readFile(mediaMapPath, 'utf8'));
+    } catch {
+      throw new InvalidAnkiPackageError(
+        'The Anki media map file contains invalid JSON.',
+      );
+    }
+
+    const mediaEntries = this.asJsonObject(
+      parsedMediaMap,
+      'The Anki media map file contains invalid metadata.',
+    );
+
+    return new Map(
+      Object.entries(mediaEntries)
+        .filter(
+          (entry): entry is [string, string] =>
+            /^\d+$/.test(entry[0]) &&
+            typeof entry[1] === 'string' &&
+            entry[1].trim().length > 0,
+        )
+        .map(([ankiIndex, originalName]) => [ankiIndex, originalName.trim()]),
+    );
+  }
+
+  private detectMimeType(originalName: string): string {
+    const mimeType = lookupMimeType(originalName.replaceAll('\\', '/'));
+
+    return typeof mimeType === 'string' ? mimeType : 'application/octet-stream';
+  }
+
+  private classifyMediaType(mimeType: string): ParsedAnkiMediaFile['type'] {
+    if (mimeType.startsWith('image/')) {
+      return 'IMAGE';
+    }
+
+    if (mimeType.startsWith('audio/')) {
+      return 'AUDIO';
+    }
+
+    if (mimeType.startsWith('video/')) {
+      return 'VIDEO';
+    }
+
+    return 'OTHER';
   }
 
   private detectMediaReferences(value: string): ParsedAnkiNoteMediaReference[] {

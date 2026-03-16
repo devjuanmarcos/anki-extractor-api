@@ -1,5 +1,5 @@
 import { basename, join } from 'node:path';
-import { mkdir, rename, rm } from 'node:fs/promises';
+import { copyFile, mkdir, rename, rm } from 'node:fs/promises';
 import {
   BadRequestException,
   Injectable,
@@ -12,6 +12,7 @@ import { config } from '../../config/config';
 import {
   ParsedAnkiCollectionMetadata,
   ParsedAnkiCard,
+  ParsedAnkiMediaFile,
   ParsedAnkiNote,
   AnkiPackageService,
   InvalidAnkiPackageError,
@@ -64,12 +65,20 @@ export class ImportsService {
       const cards = this.ankiPackageService.parseCards(
         preparedCollection.raw.cards,
       );
+      const mediaCollection =
+        await this.ankiPackageService.parseMediaFiles(preparedCollection);
+      this.logMissingMediaFiles(importId, mediaCollection.missingFiles);
+      const storedMediaFiles = await this.storeMediaFiles(
+        importId,
+        mediaCollection.files,
+      );
 
       await this.persistCollectionMetadata(
         importId,
         collectionMetadata,
         notes,
         cards,
+        storedMediaFiles,
       );
 
       return ImportEntity.fromRecord(createdImport);
@@ -128,6 +137,7 @@ export class ImportsService {
     collectionMetadata: ParsedAnkiCollectionMetadata,
     notes: ParsedAnkiNote[],
     cards: ParsedAnkiCard[],
+    mediaFiles: StoredMediaFile[],
   ): Promise<void> {
     await this.prisma.$transaction(async transaction => {
       if (collectionMetadata.decks.length > 0) {
@@ -257,12 +267,27 @@ export class ImportsService {
         });
       }
 
+      if (mediaFiles.length > 0) {
+        await transaction.mediaFile.createMany({
+          data: mediaFiles.map(mediaFile => ({
+            importId,
+            ankiIndex: mediaFile.ankiIndex,
+            originalName: mediaFile.originalName,
+            mimeType: mediaFile.mimeType,
+            sizeKb: mediaFile.sizeKb,
+            storageUrl: mediaFile.storageUrl,
+            type: mediaFile.type,
+          })),
+        });
+      }
+
       await transaction.import.update({
         where: { id: importId },
         data: {
           decksCount: collectionMetadata.decks.length,
           notesCount: notes.length,
           cardsCount: cards.length,
+          mediaCount: mediaFiles.length,
         },
       });
     });
@@ -280,6 +305,7 @@ export class ImportsService {
     await Promise.allSettled([
       this.prisma.import.delete({ where: { id: importId } }),
       this.safeRemovePath(this.getWorkspacePath(importId)),
+      this.safeRemovePath(this.getImportMediaPath(importId)),
     ]);
   }
 
@@ -296,7 +322,85 @@ export class ImportsService {
         },
       }),
       this.safeRemovePath(this.getWorkspacePath(importId)),
+      this.safeRemovePath(this.getImportMediaPath(importId)),
     ]);
+  }
+
+  private logMissingMediaFiles(
+    importId: string,
+    missingFiles: Array<{ ankiIndex: string; originalName: string }>,
+  ): void {
+    for (const missingFile of missingFiles) {
+      this.logger.warn(
+        `Skipping media index ${missingFile.ankiIndex} mapped to "${missingFile.originalName}" for import ${importId} because the file is missing from the package.`,
+      );
+    }
+  }
+
+  private async storeMediaFiles(
+    importId: string,
+    mediaFiles: ParsedAnkiMediaFile[],
+  ): Promise<StoredMediaFile[]> {
+    if (mediaFiles.length === 0) {
+      return [];
+    }
+
+    const importMediaPath = this.getImportMediaPath(importId);
+    await mkdir(importMediaPath, { recursive: true });
+
+    const storedMediaFiles: StoredMediaFile[] = [];
+
+    for (const mediaFile of mediaFiles) {
+      const storageFileName = this.buildStorageFileName(
+        mediaFile.ankiIndex,
+        mediaFile.originalName,
+      );
+      const destinationPath = join(importMediaPath, storageFileName);
+
+      await copyFile(mediaFile.filePath, destinationPath);
+
+      storedMediaFiles.push({
+        ankiIndex: mediaFile.ankiIndex,
+        originalName: mediaFile.originalName,
+        mimeType: mediaFile.mimeType,
+        sizeKb: this.toSizeKb(mediaFile.sizeBytes),
+        storageUrl: this.buildStorageUrl(importId, storageFileName),
+        type: mediaFile.type,
+      });
+    }
+
+    return storedMediaFiles;
+  }
+
+  private buildStorageFileName(
+    ankiIndex: string,
+    originalName: string,
+  ): string {
+    const normalizedFileName = basename(
+      originalName.replaceAll('\\', '/'),
+    ).trim();
+    const safeFileName = Array.from(normalizedFileName)
+      .map(character =>
+        character.charCodeAt(0) <= 31 || '<>:"/\\|?*'.includes(character)
+          ? '_'
+          : character,
+      )
+      .join('')
+      .trim();
+
+    return `${ankiIndex}-${safeFileName.length > 0 ? safeFileName : 'media-file'}`;
+  }
+
+  private toSizeKb(sizeBytes: number): number {
+    return Math.ceil(sizeBytes / 1024);
+  }
+
+  private getImportMediaPath(importId: string): string {
+    return join(config.storage.mediaDir, importId);
+  }
+
+  private buildStorageUrl(importId: string, fileName: string): string {
+    return `${importId}/${fileName}`;
   }
 
   private async safeRemovePath(path?: string): Promise<void> {
@@ -307,3 +411,12 @@ export class ImportsService {
     await rm(path, { recursive: true, force: true }).catch(() => undefined);
   }
 }
+
+type StoredMediaFile = {
+  ankiIndex: string;
+  originalName: string;
+  mimeType: string;
+  sizeKb: number;
+  storageUrl: string;
+  type: ParsedAnkiMediaFile['type'];
+};
