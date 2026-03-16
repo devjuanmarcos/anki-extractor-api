@@ -6,6 +6,45 @@ Started: Mon, Mar 16, 2026 12:11:31 AM
 
 ---
 
+## [2026-03-16 10:49:23 -03:00] - US-003: Extrair o arquivo .apkg e localizar fontes internas
+Thread: 
+Run: 20260316-102951-949 (iteration 1)
+Run log: D:/DEVJUANMARCOS/PROJETOS/KIKITO/anki-extractor-api/.ralph/runs/run-20260316-102951-949-iter-1.log
+Run summary: D:/DEVJUANMARCOS/PROJETOS/KIKITO/anki-extractor-api/.ralph/runs/run-20260316-102951-949-iter-1.md
+- Guardrails reviewed: yes
+- No-commit run: false
+- Commit: `14af679 feat(imports): extract Anki package sources`
+- Post-commit status: `clean`
+- Verification:
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm prisma:generate` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm prisma:migrate` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm lint` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm build` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm test` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm test:e2e` -> PASS
+- Files changed:
+  - AGENTS.md
+  - package.json
+  - src/modules/imports/anki-package.service.ts
+  - src/modules/imports/imports.module.ts
+  - src/modules/imports/imports.service.ts
+  - src/modules/imports/imports.service.spec.ts
+  - test/imports.e2e-spec.ts
+  - .ralph/progress.md
+- What was implemented
+  - Added an internal `AnkiPackageService` to unpack `source.apkg` into a deterministic `extracted` workspace, locate `collection.anki2` or `collection.anki21`, find the optional `media` map, and enumerate numeric media files.
+  - Opened the embedded SQLite collection with `better-sqlite3` in read-only mode and exposed raw `col`, `notes`, and `cards` data for downstream parsing.
+  - Updated `ImportsService` to validate the extracted package immediately after upload, mark the import as `FAILED` with a persisted `failureReason`, and remove the temporary workspace when the collection file is missing or unreadable.
+  - Added unit and e2e fixtures with real `.apkg` archives covering the happy path plus controlled failures for missing collection files and unreadable SQLite payloads.
+- **Learnings for future iterations:**
+  - Patterns discovered
+    - Keeping the extracted archive under `<importsTempDir>/<importId>/extracted` gives later stories a stable handoff point without mixing temporary uploads and permanent media storage.
+  - Gotchas encountered
+    - `pnpm` initially ignored the native build for `better-sqlite3`; adding `pnpm.onlyBuiltDependencies` and running `pnpm rebuild better-sqlite3` fixed the binding for the local Windows setup.
+  - Useful context
+    - Resolving each ZIP entry against the extraction root prevents path traversal while still letting the importer support both `collection.anki2` and `collection.anki21`.
+---
+
 ## [2026-03-16 10:24:14 -03:00] - US-002: Preparar dependencias e contrato de upload
 Thread: 
 Run: 20260316-101127-442 (iteration 1)

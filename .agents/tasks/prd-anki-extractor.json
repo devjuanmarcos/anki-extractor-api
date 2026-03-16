@@ -264,7 +264,7 @@
     {
       "id": "US-002",
       "title": "Preparar dependencias e contrato de upload",
-      "status": "open",
+      "status": "done",
       "dependsOn": [
         "US-001"
       ],
@@ -276,12 +276,15 @@
         "Criar um registro de Import com status PROCESSING antes de iniciar a extracao e salvar o arquivo em area temporaria separada da pasta de midias permanentes.",
         "Example: enviar english.apkg com autenticacao valida cria um import em processamento e retorna um payload contendo importId, originalName e status.",
         "Negative case: enviar arquivo vazio, extensao .zip ou payload sem file retorna 400 com mensagem clara e nao cria nenhum registro de import."
-      ]
+      ],
+      "startedAt": "2026-03-16T13:11:27.623314+00:00",
+      "completedAt": "2026-03-16T13:27:41.489658+00:00",
+      "updatedAt": "2026-03-16T13:27:41.489648+00:00"
     },
     {
       "id": "US-003",
       "title": "Extrair o arquivo .apkg e localizar fontes internas",
-      "status": "open",
+      "status": "in_progress",
       "dependsOn": [
         "US-002"
       ],
@@ -292,7 +295,10 @@
         "Marcar o import como FAILED e limpar o workspace temporario quando o arquivo nao contiver uma collection valida ou quando o SQLite nao puder ser aberto.",
         "Example: um pacote com collection.anki2, media e arquivos 0 e 1 e descompactado e deixa o servico com acesso aos dados brutos para parse posterior.",
         "Negative case: um pacote sem collection.anki2 e sem collection.anki21 gera falha controlada no import e nao cria deck, note, card ou media no banco."
-      ]
+      ],
+      "startedAt": "2026-03-16T13:29:51.563806+00:00",
+      "completedAt": null,
+      "updatedAt": "2026-03-16T13:29:51.563816+00:00"
     },
     {
       "id": "US-004",
