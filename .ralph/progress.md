@@ -5,6 +5,45 @@ Started: Mon, Mar 16, 2026 12:11:31 AM
 - (add reusable patterns here)
 
 ---
+## [2026-03-16 11:30:41 -03:00] - US-006: Persistir cards e contagens do import
+Thread: 
+Run: 20260316-102951-949 (iteration 4)
+Run log: D:/DEVJUANMARCOS/PROJETOS/KIKITO/anki-extractor-api/.ralph/runs/run-20260316-102951-949-iter-4.log
+Run summary: D:/DEVJUANMARCOS/PROJETOS/KIKITO/anki-extractor-api/.ralph/runs/run-20260316-102951-949-iter-4.md
+- Guardrails reviewed: yes
+- No-commit run: false
+- Commit: `b430394 feat(imports): persist import cards`
+- Post-commit status: `clean`
+- Verification:
+  - Command: `pnpm test -- imports.service.spec.ts --runInBand` -> PASS
+  - Command: `pnpm test:e2e -- imports.e2e-spec.ts --runInBand` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm prisma:generate` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm prisma:migrate` -> PASS
+  - Command: `pnpm lint` -> PASS
+  - Command: `pnpm build` -> PASS
+  - Command: `pnpm test` -> PASS
+  - Command: `pnpm test:e2e` -> PASS
+- Files changed:
+  - .agents/tasks/prd-anki-extractor.json
+  - .ralph/progress.md
+  - .ralph/runs/run-20260316-102951-949-iter-3.md
+  - src/modules/imports/anki-package.service.ts
+  - src/modules/imports/imports.service.spec.ts
+  - src/modules/imports/imports.service.ts
+  - test/imports.e2e-spec.ts
+- What was implemented
+  - Added card parsing from SQLite `cards`, preserving `ankiCardId`, `ordinal`, `type`, `queue`, `due`, `ivl`, `factor`, `reps`, and `lapses` without introducing spaced-repetition behavior.
+  - Persisted cards inside the import transaction by resolving `Deck` and `Note` through their original Anki IDs, and updated `Import.cardsCount` alongside the existing aggregate counts.
+  - Covered the reverse-card example with two cards sharing the same note and deck, plus explicit failure paths for cards that reference missing notes or decks.
+- **Learnings for future iterations:**
+  - Patterns discovered
+    - Import child entities should continue resolving persisted relation IDs from the original Anki identifiers inside the same transaction to keep rollback semantics simple.
+  - Gotchas encountered
+    - Nested Jest matchers on Prisma relation payloads can trip `@typescript-eslint/no-unsafe-assignment`; direct property assertions avoid that lint failure cleanly.
+  - Useful context
+    - Switching from `readPreparedImportNotes` to `readPreparedImportSource` is enough to extend the existing pipeline to cards because the Anki package service already exposes ordered raw `cards` rows.
+---
+
 ## [2026-03-16 11:16:46 -03:00] - US-005: Parsear notas com campos nomeados e tags
 Thread: 
 Run: 20260316-102951-949 (iteration 3)

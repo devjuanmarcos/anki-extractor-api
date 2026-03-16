@@ -322,7 +322,7 @@
     {
       "id": "US-005",
       "title": "Parsear notas com campos nomeados e tags",
-      "status": "in_progress",
+      "status": "done",
       "dependsOn": [
         "US-004"
       ],
@@ -335,13 +335,13 @@
         "Negative case: se uma note referenciar um modelId inexistente, o import falha de forma explicita e nao deixa notes persistidas sem modelo valido."
       ],
       "startedAt": "2026-03-16T14:06:31.196187+00:00",
-      "completedAt": null,
-      "updatedAt": "2026-03-16T14:06:31.196195+00:00"
+      "completedAt": "2026-03-16T14:17:59.580239+00:00",
+      "updatedAt": "2026-03-16T14:17:59.580223+00:00"
     },
     {
       "id": "US-006",
       "title": "Persistir cards e contagens do import",
-      "status": "open",
+      "status": "in_progress",
       "dependsOn": [
         "US-005"
       ],
@@ -352,7 +352,10 @@
         "Nao implementar motor de repeticao espa\u00e7ada; apenas armazenar os metadados de revisao presentes no arquivo.",
         "Example: um modelo com card reverso cria dois cards com ordinais 0 e 1 ligados a mesma note e ao deck correto.",
         "Negative case: se um card apontar para deck ou note inexistente, o import falha com erro relacional claro e nao deixa cards orfaos."
-      ]
+      ],
+      "startedAt": "2026-03-16T14:18:02.195694+00:00",
+      "completedAt": null,
+      "updatedAt": "2026-03-16T14:18:02.195703+00:00"
     },
     {
       "id": "US-007",
