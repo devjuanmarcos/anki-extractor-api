@@ -5,6 +5,44 @@ Started: Mon, Mar 16, 2026 12:11:31 AM
 - (add reusable patterns here)
 
 ---
+## [2026-03-16 11:16:46 -03:00] - US-005: Parsear notas com campos nomeados e tags
+Thread: 
+Run: 20260316-102951-949 (iteration 3)
+Run log: D:/DEVJUANMARCOS/PROJETOS/KIKITO/anki-extractor-api/.ralph/runs/run-20260316-102951-949-iter-3.log
+Run summary: D:/DEVJUANMARCOS/PROJETOS/KIKITO/anki-extractor-api/.ralph/runs/run-20260316-102951-949-iter-3.md
+- Guardrails reviewed: yes
+- No-commit run: false
+- Commit: `0f43de2 feat(imports): parse named note fields`
+- Post-commit status: `clean`
+- Verification:
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm test -- imports.service.spec.ts` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm test:e2e -- imports.e2e-spec.ts` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm prisma:generate` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm prisma:migrate` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm lint` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm build` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm test` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm test:e2e` -> PASS
+- Files changed:
+  - .agents/tasks/prd-anki-extractor.json
+  - .ralph/progress.md
+  - .ralph/runs/run-20260316-102951-949-iter-2.md
+  - src/modules/imports/anki-package.service.ts
+  - src/modules/imports/imports.service.spec.ts
+  - src/modules/imports/imports.service.ts
+  - test/imports.e2e-spec.ts
+- What was implemented
+  - Added note parsing from SQLite `notes`, splitting `flds` by `\u001f`, mapping values to the corresponding `NoteModel` field names, and preserving the original HTML/Anki field content.
+  - Persisted parsed notes with tag arrays and per-field media references for `<img src>` and `[sound:arquivo.ext]`, while keeping note insertion inside the import transaction.
+  - Added explicit import failure when a note references a missing note model and covered the happy path plus failure path in unit and e2e tests.
+- **Learnings for future iterations:**
+  - Patterns discovered
+    - Ordering note fields by the model field ordinal is the deterministic way to map raw `flds` values to named keys.
+  - Gotchas encountered
+    - Prisma relation matchers in Jest e2e assertions can trigger `@typescript-eslint/no-unsafe-assignment` when nested directly inside object literals.
+  - Useful context
+    - Parsing notes before opening the write transaction keeps invalid `mid` references from creating partial note rows while still marking the import as `FAILED`.
+---
 
 ## [2026-03-16 11:04:16 -03:00] - US-004: Persistir decks e modelos de nota
 Thread: 
