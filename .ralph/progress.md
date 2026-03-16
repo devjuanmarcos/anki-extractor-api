@@ -5,6 +5,44 @@ Started: Mon, Mar 16, 2026 12:11:31 AM
 - (add reusable patterns here)
 
 ---
+
+## [2026-03-16 11:45:00 -03:00] - US-007: Processar mapa de midias e storage local
+Thread: 
+Run: 20260316-102951-949 (iteration 5)
+Run log: D:/DEVJUANMARCOS/PROJETOS/KIKITO/anki-extractor-api/.ralph/runs/run-20260316-102951-949-iter-5.log
+Run summary: D:/DEVJUANMARCOS/PROJETOS/KIKITO/anki-extractor-api/.ralph/runs/run-20260316-102951-949-iter-5.md
+- Guardrails reviewed: yes
+- No-commit run: false
+- Commit: `b76a015 feat(imports): persist mapped media files`
+- Post-commit status: `clean`
+- Verification:
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm prisma:generate` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm prisma:migrate` -> PASS
+  - Command: `pnpm lint` -> PASS
+  - Command: `pnpm build` -> PASS
+  - Command: `pnpm test` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm test:e2e` -> PASS
+- Files changed:
+  - .agents/tasks/prd-anki-extractor.json
+  - .ralph/progress.md
+  - .ralph/runs/run-20260316-102951-949-iter-4.md
+  - src/modules/imports/anki-package.service.ts
+  - src/modules/imports/imports.service.spec.ts
+  - src/modules/imports/imports.service.ts
+  - test/imports.e2e-spec.ts
+- What was implemented
+  - Added media-map parsing to resolve Anki numeric indexes into original file names, detect MIME types with `mime-types`, and classify persisted media as `IMAGE`, `AUDIO`, `VIDEO`, or `OTHER`.
+  - Copied extracted media files into the configurable local `MEDIA_STORAGE_DIR`, stored deterministic relative `storageUrl` values, and persisted `MediaFile` rows with `mediaCount` updates on the parent import.
+  - Applied deterministic handling for mapped indexes whose binaries are missing from the package: the import logs a warning, skips the absent media record, and continues without crashing.
+  - Expanded unit and e2e coverage to validate happy-path media persistence plus the missing-binary negative case.
+- **Learnings for future iterations:**
+  - Patterns discovered
+    - Keeping media storage URLs relative to the configured media root avoids leaking absolute filesystem paths while still giving future API endpoints a stable lookup key.
+  - Gotchas encountered
+    - `eslint` rejects control-character regexes in filename sanitizers on this codebase, so character-by-character sanitization is the safer approach.
+  - Useful context
+    - The Anki `media` file is optional and only maps numeric archive entries to original names; deterministic imports should persist only files that physically exist in the package.
+---
 ## [2026-03-16 11:30:41 -03:00] - US-006: Persistir cards e contagens do import
 Thread: 
 Run: 20260316-102951-949 (iteration 4)

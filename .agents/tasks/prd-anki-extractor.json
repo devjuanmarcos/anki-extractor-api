@@ -341,7 +341,7 @@
     {
       "id": "US-006",
       "title": "Persistir cards e contagens do import",
-      "status": "in_progress",
+      "status": "done",
       "dependsOn": [
         "US-005"
       ],
@@ -354,13 +354,13 @@
         "Negative case: se um card apontar para deck ou note inexistente, o import falha com erro relacional claro e nao deixa cards orfaos."
       ],
       "startedAt": "2026-03-16T14:18:02.195694+00:00",
-      "completedAt": null,
-      "updatedAt": "2026-03-16T14:18:02.195703+00:00"
+      "completedAt": "2026-03-16T14:32:45.591214+00:00",
+      "updatedAt": "2026-03-16T14:32:45.591202+00:00"
     },
     {
       "id": "US-007",
       "title": "Processar mapa de midias e storage local",
-      "status": "open",
+      "status": "in_progress",
       "dependsOn": [
         "US-003",
         "US-005"
@@ -372,7 +372,10 @@
         "Salvar as midias em diretorio local configuravel e persistir storageUrl ou caminho equivalente que possa ser servido pela API.",
         "Example: o mapeamento {\"0\":\"image_001.jpg\"} gera um MediaFile com originalName image_001.jpg, mimeType image/jpeg e caminho local resolvivel.",
         "Negative case: se o mapa de midia referenciar 0 -> audio.mp3 mas o arquivo 0 nao existir, o comportamento documentado e aplicado sem crash inesperado e o import segue de forma deterministica."
-      ]
+      ],
+      "startedAt": "2026-03-16T14:32:48.605050+00:00",
+      "completedAt": null,
+      "updatedAt": "2026-03-16T14:32:48.605062+00:00"
     },
     {
       "id": "US-008",
