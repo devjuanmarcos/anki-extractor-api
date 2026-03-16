@@ -5,6 +5,42 @@ Started: Mon, Mar 16, 2026 12:11:31 AM
 - (add reusable patterns here)
 
 ---
+
+## [2026-03-16 12:50:03 -03:00] - US-010: Exportar o import como JSON estruturado
+Thread: 
+Run: 20260316-102951-949 (iteration 8)
+Run log: D:/DEVJUANMARCOS/PROJETOS/KIKITO/anki-extractor-api/.ralph/runs/run-20260316-102951-949-iter-8.log
+Run summary: D:/DEVJUANMARCOS/PROJETOS/KIKITO/anki-extractor-api/.ralph/runs/run-20260316-102951-949-iter-8.md
+- Guardrails reviewed: yes
+- No-commit run: false
+- Commit: c35ff45 feat(imports): export structured import JSON
+- Post-commit status: clean
+- Verification:
+  - Command: `pnpm test -- --runInBand imports.service.spec.ts` -> PASS
+  - Command: `pnpm test:e2e -- --runInBand imports.e2e-spec.ts` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm prisma:generate` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm prisma:migrate` -> PASS
+  - Command: `pnpm lint` -> PASS
+  - Command: `pnpm build` -> PASS
+  - Command: `pnpm test` -> PASS
+  - Command: `pnpm test:e2e` -> PASS
+- Files changed:
+  - src/modules/imports/entities/import-export.entity.ts
+  - src/modules/imports/imports.controller.ts
+  - src/modules/imports/imports.service.ts
+  - src/modules/imports/imports.service.spec.ts
+  - test/imports.e2e-spec.ts
+  - .ralph/progress.md
+- What was implemented
+  - Added `GET /api/v1/imports/:importId/export` with Swagger metadata and a structured JSON payload containing `import`, `decks`, `notes`, `cards`, and `media`.
+  - Reused persisted Prisma records for export assembly, including named note fields, media references, deck/card linkage, and public media URLs without rebuilding data from the uploaded archive.
+  - Added deterministic `409 Conflict` handling when export is requested for `PROCESSING` or `FAILED` imports, including the current status and failure reason when available.
+  - Added unit and e2e coverage for successful export, missing import `404`, and unfinished import conflict responses.
+- **Learnings for future iterations:**
+  - Patterns discovered: the existing import entities were reusable enough to build a full export payload with one small aggregate wrapper entity instead of introducing a second mapping layer.
+  - Gotchas encountered: the worktree already contained loop-managed PRD status updates and the previous iteration summary, so the operational follow-up commit must absorb those artifacts to restore a clean tree.
+  - Useful context: deriving deck note/card counts from the fetched export graph avoids extra aggregate queries while keeping the export route scoped to persisted database state.
+---
 ## [2026-03-16 12:34:54 -03:00] - US-009: Expor consulta de notas, cards e midias
 Thread:
 Run: 20260316-102951-949 (iteration 7)
