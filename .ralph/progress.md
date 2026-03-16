@@ -6,6 +6,52 @@ Started: Mon, Mar 16, 2026 12:11:31 AM
 
 ---
 
+## [2026-03-16 12:04:41 -03:00] - US-008: Expor consulta de imports e decks
+Thread: 
+Run: 20260316-102951-949 (iteration 6)
+Run log: D:/DEVJUANMARCOS/PROJETOS/KIKITO/anki-extractor-api/.ralph/runs/run-20260316-102951-949-iter-6.log
+Run summary: D:/DEVJUANMARCOS/PROJETOS/KIKITO/anki-extractor-api/.ralph/runs/run-20260316-102951-949-iter-6.md
+- Guardrails reviewed: yes
+- No-commit run: false
+- Commit: `f44cf2b feat(imports): expose import and deck queries`
+- Post-commit status: `clean`
+- Verification:
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm prisma:generate` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm prisma:migrate` -> PASS
+  - Command: `pnpm lint` -> PASS
+  - Command: `pnpm build` -> PASS
+  - Command: `pnpm test` -> PASS
+  - Command: `pnpm test:e2e` -> PASS
+- Files changed:
+  - .agents/tasks/prd-anki-extractor.json
+  - .ralph/progress.md
+  - .ralph/runs/run-20260316-102951-949-iter-5.md
+  - src/modules/imports/decks.controller.ts
+  - src/modules/imports/entities/deck.entity.ts
+  - src/modules/imports/entities/import-details.entity.ts
+  - src/modules/imports/entities/paginated-decks.entity.ts
+  - src/modules/imports/entities/paginated-imports.entity.ts
+  - src/modules/imports/imports.controller.ts
+  - src/modules/imports/imports.module.ts
+  - src/modules/imports/imports.service.spec.ts
+  - src/modules/imports/imports.service.ts
+  - src/modules/imports/schemas/import-query.schema.ts
+  - test/imports.e2e-spec.ts
+- What was implemented
+  - Added authenticated `GET /api/v1/imports`, `GET /api/v1/imports/:id`, `DELETE /api/v1/imports/:id`, `GET /api/v1/imports/:importId/decks`, and `GET /api/v1/decks/:id` endpoints with Swagger response contracts for audit-focused metadata and aggregate counts.
+  - Introduced paginated import and deck response entities, including import status, file size, failure reason, and deck note/card counts computed from persisted records.
+  - Finalized successful imports as `COMPLETED` once persistence succeeds, keeping the upload response contract intact while making follow-up inspection endpoints reflect the real terminal state.
+  - Removed local import workspace and media directories during import deletion and relied on Prisma cascade deletes to clear related database rows.
+  - Expanded unit and e2e coverage for import/deck listing, detail lookup, 404 behavior, and deletion cleanup.
+- **Learnings for future iterations:**
+  - Patterns discovered
+    - Reusing the project’s paginated entity shape keeps new collection endpoints aligned with existing `items/page/limit/totalItems/totalPages` responses.
+  - Gotchas encountered
+    - The import pipeline had been leaving successful records in `PROCESSING`; inspection endpoints depend on flipping that persisted status to `COMPLETED` at the transaction boundary.
+  - Useful context
+    - Deck note counts are best derived with a distinct `card.groupBy` on `deckId` + `noteId`, which avoids per-deck query loops in list endpoints.
+---
+
 ## [2026-03-16 11:45:00 -03:00] - US-007: Processar mapa de midias e storage local
 Thread: 
 Run: 20260316-102951-949 (iteration 5)
