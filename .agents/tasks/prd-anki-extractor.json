@@ -1,0 +1,435 @@
+{
+  "version": 1,
+  "project": "Anki Extractor API",
+  "overview": "Transformar o codigo existente em NestJS + Prisma em uma API capaz de receber arquivos .apkg do Anki, extrair decks, modelos, notas, cards e midias, persistir o resultado em PostgreSQL local sem Docker e expor consultas e exportacao JSON estruturada para consumo posterior.",
+  "goals": [
+    "Permitir upload e processamento de arquivos .apkg em um codigo existente, reutilizando a arquitetura modular atual do projeto.",
+    "Persistir o conteudo extraido do Anki em PostgreSQL local com Prisma, usando credenciais locais com senha 2611 e sem dependencia de Docker.",
+    "Expor endpoints versionados para consultar imports, decks, notas, cards, midias e exportacao JSON completa do import."
+  ],
+  "nonGoals": [
+    "Nao adicionar Docker para banco ou aplicacao nesta iteracao.",
+    "Nao criar frontend dedicado; Swagger e Redoc continuam como superficie de uso e documentacao.",
+    "Nao implementar fila assincrona com Redis, Bull ou workers externos nesta primeira entrega.",
+    "Nao implementar exportacao CSV, reempacotamento de .apkg ou edicao dos dados importados.",
+    "Nao integrar S3 ou outro storage cloud no MVP; o armazenamento inicial de midias deve ser local e configuravel."
+  ],
+  "successMetrics": [
+    "Um arquivo .apkg valido de pequeno ou medio porte pode ser importado de ponta a ponta em ambiente local com PostgreSQL sem Docker.",
+    "A API retorna exportacao JSON com metadados do import, decks, notas, cards e midias coerentes para ao menos um arquivo de exemplo.",
+    "Uploads invalidos ou arquivos corrompidos falham com mensagens claras, status persistido e sem registros orfaos.",
+    "Os quality gates definidos no projeto passam apos a entrega de cada historia relevante."
+  ],
+  "openQuestions": [
+    "Os endpoints de importacao e consulta devem ficar liberados para qualquer usuario autenticado ou restritos a ADMIN?",
+    "Qual diretorio definitivo deve armazenar as midias extraidas fora da area temporaria?",
+    "Qual deve ser o limite maximo aceito para upload de arquivos .apkg no MVP?",
+    "Quando houver arquivos grandes, a extracao deve migrar para processamento em background com fila?"
+  ],
+  "stack": {
+    "framework": "NestJS 11",
+    "runtime": "Node.js 20+",
+    "packageManager": "pnpm 10",
+    "hosting": "Servidor Node local existente do projeto",
+    "database": "PostgreSQL local via DATABASE_URL, sem Docker, com senha 2611 e Prisma 6",
+    "auth": "Reutilizar o fluxo JWT ja existente no projeto para proteger as rotas do recurso, exceto health e docs se mantidos publicos",
+    "orm": "Prisma",
+    "fileUpload": "Multer",
+    "archiveExtraction": "adm-zip ou unzipper, escolhendo apenas uma biblioteca no codigo final",
+    "sqliteReader": "better-sqlite3",
+    "fileStorage": "Filesystem local configuravel para midias extraidas",
+    "documentation": "Swagger e Redoc ja configurados em /docs/swagger e /docs"
+  },
+  "routes": [
+    {
+      "path": "/api/v1/imports",
+      "name": "Create Import",
+      "purpose": "Receber um arquivo .apkg via multipart/form-data, validar extensao e iniciar o fluxo de extracao."
+    },
+    {
+      "path": "/api/v1/imports",
+      "name": "List Imports",
+      "purpose": "Listar imports realizados com status e contagens resumidas."
+    },
+    {
+      "path": "/api/v1/imports/:id",
+      "name": "Import Detail",
+      "purpose": "Consultar status, contagens, nome original e erro de um import especifico."
+    },
+    {
+      "path": "/api/v1/imports/:id",
+      "name": "Delete Import",
+      "purpose": "Remover um import e todos os dados e midias locais associados."
+    },
+    {
+      "path": "/api/v1/imports/:importId/decks",
+      "name": "List Import Decks",
+      "purpose": "Listar os decks extraidos para um import."
+    },
+    {
+      "path": "/api/v1/decks/:id",
+      "name": "Deck Detail",
+      "purpose": "Consultar detalhes de um deck e suas contagens agregadas."
+    },
+    {
+      "path": "/api/v1/imports/:importId/notes",
+      "name": "List Import Notes",
+      "purpose": "Listar notas de um import com filtros por tags e paginacao."
+    },
+    {
+      "path": "/api/v1/notes/:id",
+      "name": "Note Detail",
+      "purpose": "Consultar uma nota com seus campos nomeados, tags e referencias de midia."
+    },
+    {
+      "path": "/api/v1/imports/:importId/cards",
+      "name": "List Import Cards",
+      "purpose": "Listar cards de um import com filtro por deck e paginacao."
+    },
+    {
+      "path": "/api/v1/cards/:id",
+      "name": "Card Detail",
+      "purpose": "Consultar um card com deck, nota e metadados de revisao."
+    },
+    {
+      "path": "/api/v1/imports/:importId/media",
+      "name": "List Import Media",
+      "purpose": "Listar midias extraidas por import, com filtro por tipo."
+    },
+    {
+      "path": "/api/v1/media/:id",
+      "name": "Media File",
+      "purpose": "Servir ou redirecionar para o arquivo de midia armazenado localmente."
+    },
+    {
+      "path": "/api/v1/media/:id/info",
+      "name": "Media Detail",
+      "purpose": "Consultar metadados de uma midia sem retornar o binario."
+    },
+    {
+      "path": "/api/v1/imports/:importId/export",
+      "name": "Export Import JSON",
+      "purpose": "Retornar um JSON estruturado com import, decks, notas, cards e midias."
+    }
+  ],
+  "uiNotes": [
+    "Nao ha novas telas web em escopo; a experiencia de operacao sera Swagger e Redoc.",
+    "Documentar POST /api/v1/imports como multipart/form-data com campo file, exemplos de sucesso e erros 400, 404, 409 e 422.",
+    "As rotas de listagem devem seguir o padrao de resposta paginada do projeto quando houver colecoes grandes.",
+    "A documentacao deve deixar explicito que o banco e PostgreSQL local sem Docker e que a senha esperada no ambiente local e 2611."
+  ],
+  "dataModel": [
+    {
+      "entity": "Import",
+      "fields": [
+        "id",
+        "originalName",
+        "fileSize",
+        "status",
+        "failureReason",
+        "decksCount",
+        "notesCount",
+        "cardsCount",
+        "mediaCount",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "entity": "Deck",
+      "fields": [
+        "id",
+        "ankiDeckId",
+        "name",
+        "description",
+        "importId",
+        "createdAt"
+      ]
+    },
+    {
+      "entity": "NoteModel",
+      "fields": [
+        "id",
+        "ankiModelId",
+        "name",
+        "fields",
+        "templates",
+        "importId",
+        "createdAt"
+      ]
+    },
+    {
+      "entity": "Note",
+      "fields": [
+        "id",
+        "ankiNoteId",
+        "modelId",
+        "fields",
+        "tags",
+        "importId",
+        "createdAt"
+      ]
+    },
+    {
+      "entity": "Card",
+      "fields": [
+        "id",
+        "ankiCardId",
+        "noteId",
+        "deckId",
+        "ordinal",
+        "cardType",
+        "queue",
+        "dueDate",
+        "interval",
+        "easeFactor",
+        "repetitions",
+        "lapses",
+        "importId",
+        "createdAt"
+      ]
+    },
+    {
+      "entity": "MediaFile",
+      "fields": [
+        "id",
+        "ankiIndex",
+        "originalName",
+        "mimeType",
+        "sizeKb",
+        "storageUrl",
+        "type",
+        "importId",
+        "createdAt"
+      ]
+    }
+  ],
+  "importFormat": {
+    "description": "Upload via multipart/form-data de um arquivo .apkg contendo collection.anki2 ou collection.anki21, arquivo media JSON opcional e arquivos numericos de midia.",
+    "example": {
+      "method": "POST /api/v1/imports",
+      "contentType": "multipart/form-data",
+      "fileField": "file",
+      "filename": "english-vocabulary.apkg",
+      "internalArchive": {
+        "sqlite": "collection.anki2",
+        "mediaMap": "media",
+        "mediaFiles": [
+          "0",
+          "1",
+          "2"
+        ]
+      }
+    }
+  },
+  "rules": [
+    "Aceitar apenas arquivos com extensao .apkg no endpoint de upload.",
+    "Suportar arquivos que contenham collection.anki2 ou collection.anki21; qualquer outro formato deve falhar de forma explicita.",
+    "Criar o registro de Import com status PROCESSING antes da extracao e atualiza-lo para COMPLETED ou FAILED ao final.",
+    "Persistir os IDs originais do Anki em Deck, NoteModel, Note e Card para manter rastreabilidade entre o SQLite interno e o banco relacional.",
+    "Parsear notes.flds usando o separador de unidade \\u001f e mapear os valores pelos nomes de campos definidos no NoteModel.",
+    "Preservar nomes hierarquicos de deck com separador :: exatamente como vierem do Anki.",
+    "Detectar referencias de midia em campos HTML e texto usando pelo menos img src e sound tags do formato do Anki.",
+    "Armazenar as midias em filesystem local configuravel no MVP e expor apenas URLs ou caminhos resolviveis pela API.",
+    "Nao depender de Docker para banco ou storage nesta iteracao; a configuracao deve assumir PostgreSQL local com senha 2611.",
+    "Ao excluir um import, remover em cascata os registros relacionados e limpar as midias locais pertencentes ao import.",
+    "Se um arquivo de midia estiver mapeado mas nao existir fisicamente no pacote, o comportamento deve ser deterministico e documentado sem derrubar o processo de forma inesperada.",
+    "A exportacao JSON deve refletir o conteudo persistido no banco e nao reconstruir dados diretamente do arquivo temporario apos o import."
+  ],
+  "qualityGates": [
+    "pnpm prisma:generate",
+    "pnpm lint",
+    "pnpm build",
+    "pnpm test",
+    "pnpm test:e2e"
+  ],
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "Modelar banco local para imports do Anki",
+      "status": "in_progress",
+      "dependsOn": [],
+      "description": "As a developer, I want a Prisma schema and local PostgreSQL baseline for Anki imports so that extraction results persist in the existing codebase without Docker.",
+      "acceptanceCriteria": [
+        "Definir a convencao de DATABASE_URL para PostgreSQL local com senha 2611 e sem comandos Docker, incluindo um nome de banco dedicado para o recurso.",
+        "Adicionar os modelos e enums Prisma para Import, Deck, NoteModel, Note, Card e MediaFile com relacionamentos e indices alinhados ao fluxo de extracao.",
+        "Gerar migration inicial do dominio Anki para criar tabelas, enums e indices necessarios.",
+        "Example: executar pnpm prisma:generate e pnpm prisma:migrate contra postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public cria as tabelas do dominio Anki com sucesso.",
+        "Negative case: se o banco local nao existir ou a senha estiver incorreta, a migration falha com erro de conexao acionavel e nao deixa estado parcial aplicado."
+      ],
+      "startedAt": "2026-03-16T03:12:50.884916+00:00",
+      "completedAt": null,
+      "updatedAt": "2026-03-16T03:12:50.884925+00:00"
+    },
+    {
+      "id": "US-002",
+      "title": "Preparar dependencias e contrato de upload",
+      "status": "open",
+      "dependsOn": [
+        "US-001"
+      ],
+      "description": "As an API consumer, I want a documented upload contract for .apkg files so that imports can start from a single authenticated request.",
+      "acceptanceCriteria": [
+        "Instalar as bibliotecas necessarias com comandos explicitos, incluindo pnpm add adm-zip better-sqlite3 multer mime-types sharp e pnpm add -D @types/adm-zip @types/better-sqlite3 @types/multer @types/mime-types, ou documentar uma substituicao unica equivalente.",
+        "Criar o modulo inicial do recurso seguindo o fluxo do projeto controller -> dto/schema -> service -> prisma -> entity.",
+        "Expor POST /api/v1/imports com multipart/form-data, campo file e validacao de extensao .apkg no contrato Swagger.",
+        "Criar um registro de Import com status PROCESSING antes de iniciar a extracao e salvar o arquivo em area temporaria separada da pasta de midias permanentes.",
+        "Example: enviar english.apkg com autenticacao valida cria um import em processamento e retorna um payload contendo importId, originalName e status.",
+        "Negative case: enviar arquivo vazio, extensao .zip ou payload sem file retorna 400 com mensagem clara e nao cria nenhum registro de import."
+      ]
+    },
+    {
+      "id": "US-003",
+      "title": "Extrair o arquivo .apkg e localizar fontes internas",
+      "status": "open",
+      "dependsOn": [
+        "US-002"
+      ],
+      "description": "As a developer, I want to unpack the .apkg archive and find the SQLite and media map files so that downstream parsers receive deterministic inputs.",
+      "acceptanceCriteria": [
+        "Descompactar o .apkg em workspace temporario e localizar collection.anki2 ou collection.anki21, o arquivo media e os arquivos numericos de midia.",
+        "Abrir o SQLite interno em modo somente leitura com better-sqlite3 e disponibilizar os dados brutos necessarios para os proximos passos.",
+        "Marcar o import como FAILED e limpar o workspace temporario quando o arquivo nao contiver uma collection valida ou quando o SQLite nao puder ser aberto.",
+        "Example: um pacote com collection.anki2, media e arquivos 0 e 1 e descompactado e deixa o servico com acesso aos dados brutos para parse posterior.",
+        "Negative case: um pacote sem collection.anki2 e sem collection.anki21 gera falha controlada no import e nao cria deck, note, card ou media no banco."
+      ]
+    },
+    {
+      "id": "US-004",
+      "title": "Persistir decks e modelos de nota",
+      "status": "open",
+      "dependsOn": [
+        "US-003"
+      ],
+      "description": "As a developer, I want to parse the col table into decks and note models so that notes and cards can be mapped correctly later.",
+      "acceptanceCriteria": [
+        "Parsear os JSONs de col.models e col.decks e persistir NoteModel e Deck com seus IDs originais do Anki.",
+        "Salvar names de campos e templates de cards em colunas JSON para uso posterior no mapeamento de notes e cards.",
+        "Preservar nomes de deck hierarquicos com separador :: sem normalizacao destrutiva.",
+        "Example: um deck English::Vocabulary::Advanced e um modelo Basic (and reversed card) sao persistidos e vinculados ao mesmo import.",
+        "Negative case: se col.models ou col.decks estiverem com JSON invalido, o import e marcado como FAILED e nenhum deck ou modelo parcial permanece ligado ao import."
+      ]
+    },
+    {
+      "id": "US-005",
+      "title": "Parsear notas com campos nomeados e tags",
+      "status": "open",
+      "dependsOn": [
+        "US-004"
+      ],
+      "description": "As a developer, I want Anki notes converted into named field objects so that consumers can use the extracted content without decoding raw separators.",
+      "acceptanceCriteria": [
+        "Ler a tabela notes, separar flds por \\u001f e mapear cada valor para o nome de campo definido no NoteModel correspondente.",
+        "Persistir tags como lista e manter o conteudo original dos campos, incluindo HTML e anotacoes do Anki.",
+        "Detectar referencias de midia em campos usando pelo menos img src e [sound:arquivo.ext] para enriquecer etapas posteriores.",
+        "Example: a sequencia Pergunta\\u001fResposta\\u001f[sound:audio.mp3] com campos Front, Back e Audio vira um objeto fields com chaves nomeadas.",
+        "Negative case: se uma note referenciar um modelId inexistente, o import falha de forma explicita e nao deixa notes persistidas sem modelo valido."
+      ]
+    },
+    {
+      "id": "US-006",
+      "title": "Persistir cards e contagens do import",
+      "status": "open",
+      "dependsOn": [
+        "US-005"
+      ],
+      "description": "As a developer, I want cards linked to notes and decks so that each study item can be queried with its review metadata.",
+      "acceptanceCriteria": [
+        "Ler a tabela cards e persistir os campos ankiCardId, ordinal, type, queue, due, ivl, factor, reps e lapses.",
+        "Vincular cada card ao deck e a note corretos usando os IDs originais do SQLite e atualizar as contagens agregadas do Import ao final.",
+        "Nao implementar motor de repeticao espa\u00e7ada; apenas armazenar os metadados de revisao presentes no arquivo.",
+        "Example: um modelo com card reverso cria dois cards com ordinais 0 e 1 ligados a mesma note e ao deck correto.",
+        "Negative case: se um card apontar para deck ou note inexistente, o import falha com erro relacional claro e nao deixa cards orfaos."
+      ]
+    },
+    {
+      "id": "US-007",
+      "title": "Processar mapa de midias e storage local",
+      "status": "open",
+      "dependsOn": [
+        "US-003",
+        "US-005"
+      ],
+      "description": "As an API consumer, I want extracted media saved locally with metadata so that notes and export responses can resolve images and audio files.",
+      "acceptanceCriteria": [
+        "Ler o arquivo media quando existir, relacionar os indices numericos aos nomes originais e identificar arquivos fisicos presentes no pacote.",
+        "Detectar mime type e classificar a midia como IMAGE, AUDIO, VIDEO ou OTHER antes de persistir MediaFile.",
+        "Salvar as midias em diretorio local configuravel e persistir storageUrl ou caminho equivalente que possa ser servido pela API.",
+        "Example: o mapeamento {\"0\":\"image_001.jpg\"} gera um MediaFile com originalName image_001.jpg, mimeType image/jpeg e caminho local resolvivel.",
+        "Negative case: se o mapa de midia referenciar 0 -> audio.mp3 mas o arquivo 0 nao existir, o comportamento documentado e aplicado sem crash inesperado e o import segue de forma deterministica."
+      ]
+    },
+    {
+      "id": "US-008",
+      "title": "Expor consulta de imports e decks",
+      "status": "open",
+      "dependsOn": [
+        "US-006",
+        "US-007"
+      ],
+      "description": "As an authenticated user, I want to inspect imports and decks so that I can validate what was extracted before consuming note and card details.",
+      "acceptanceCriteria": [
+        "Adicionar GET /api/v1/imports, GET /api/v1/imports/:id, DELETE /api/v1/imports/:id, GET /api/v1/imports/:importId/decks e GET /api/v1/decks/:id.",
+        "Retornar status, contagens e metadados suficientes para auditoria de imports e resumo de decks.",
+        "Ao excluir um import, remover os registros relacionados do banco e limpar as midias locais vinculadas ao import.",
+        "Example: GET /api/v1/imports/:id retorna originalName, status, decksCount, notesCount, cardsCount e mediaCount de um import concluido.",
+        "Negative case: consultar ou excluir um import inexistente retorna 404 com o formato padronizado de erro do projeto."
+      ]
+    },
+    {
+      "id": "US-009",
+      "title": "Expor consulta de notas, cards e midias",
+      "status": "open",
+      "dependsOn": [
+        "US-006",
+        "US-007"
+      ],
+      "description": "As an authenticated user, I want list and detail endpoints for notes, cards and media so that consumers can browse extracted Anki content incrementally.",
+      "acceptanceCriteria": [
+        "Adicionar GET /api/v1/imports/:importId/notes, GET /api/v1/notes/:id, GET /api/v1/imports/:importId/cards, GET /api/v1/cards/:id, GET /api/v1/imports/:importId/media, GET /api/v1/media/:id e GET /api/v1/media/:id/info.",
+        "Suportar paginacao para notes, cards e media e filtros por deckId, tags ou tipo quando aplicavel.",
+        "Documentar os contratos Swagger com exemplos de resposta e estados de erro para recursos nao encontrados.",
+        "Example: GET /api/v1/imports/:importId/cards?deckId=<deckId>&page=1&limit=20 retorna cards com resumo da note associada.",
+        "Negative case: GET /api/v1/media/:id para um arquivo removido ou inexistente retorna 404 e nao exp\u00f5e caminho interno sensivel do filesystem."
+      ]
+    },
+    {
+      "id": "US-010",
+      "title": "Exportar o import como JSON estruturado",
+      "status": "open",
+      "dependsOn": [
+        "US-008",
+        "US-009"
+      ],
+      "description": "As an API consumer, I want a single JSON export for one import so that frontends and other services can consume the extracted Anki dataset without multiple API calls.",
+      "acceptanceCriteria": [
+        "Adicionar GET /api/v1/imports/:importId/export retornando metadados do import, decks, cards, notes e midias em uma estrutura aninhada coerente.",
+        "Incluir os campos de note nomeados, as referencias de midia e os metadados essenciais de card no payload de exportacao.",
+        "Manter exportacao CSV fora de escopo nesta iteracao.",
+        "Example: exportar um import concluido de vocabulario retorna JSON com import, decks, cards, note.fields e media equivalentes ao que foi persistido no banco.",
+        "Negative case: solicitar exportacao de um import em PROCESSING ou FAILED retorna erro deterministico com explicacao clara do status atual."
+      ]
+    },
+    {
+      "id": "US-011",
+      "title": "Concluir tratamento de erros, limpeza e verificacao",
+      "status": "open",
+      "dependsOn": [
+        "US-002",
+        "US-003",
+        "US-008",
+        "US-009",
+        "US-010"
+      ],
+      "description": "As a maintainer, I want reliable cleanup, documentation and automated checks so that the import pipeline is supportable in local development.",
+      "acceptanceCriteria": [
+        "Garantir limpeza dos arquivos temporarios em fluxos de sucesso e falha, inclusive quando a extracao abortar no meio do processo.",
+        "Persistir reason de falha no Import e mapear excecoes para o formato padronizado da API.",
+        "Adicionar testes unitarios para parsing e testes e2e cobrindo upload valido, arquivo invalido, import com falha e exportacao bem-sucedida.",
+        "Atualizar README ou docs com setup de PostgreSQL local sem Docker, senha 2611, configuracao de DATABASE_URL, storage local e comandos de verificacao.",
+        "Example: um teste e2e sobe a API com banco local, importa um .apkg de fixture, valida as contagens persistidas e consulta o endpoint de export.",
+        "Negative case: um .apkg corrompido marca o import como FAILED, retorna erro normalizado e nao deixa lixo no diretorio temporario."
+      ]
+    }
+  ]
+}

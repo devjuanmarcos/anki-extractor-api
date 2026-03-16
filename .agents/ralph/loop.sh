@@ -84,10 +84,37 @@ MAX_ITERATIONS="${MAX_ITERATIONS:-$DEFAULT_MAX_ITERATIONS}"
 NO_COMMIT="${NO_COMMIT:-$DEFAULT_NO_COMMIT}"
 STALE_SECONDS="${STALE_SECONDS:-$DEFAULT_STALE_SECONDS}"
 
+normalize_windows_path() {
+  local p="$1"
+  local drive
+  local rest
+
+  if [[ "$p" =~ ^[A-Za-z]:[\\/].* ]]; then
+    drive="${p:0:1}"
+    rest="${p:2}"
+    drive="$(printf '%s' "$drive" | tr '[:upper:]' '[:lower:]')"
+    rest="${rest//\\//}"
+    if [[ "$rest" != /* ]]; then
+      rest="/$rest"
+    fi
+    echo "/$drive$rest"
+    return 0
+  fi
+
+  if [[ "$p" =~ ^\\\\.* ]]; then
+    echo "${p//\\//}"
+    return 0
+  fi
+
+  return 1
+}
+
 abs_path() {
   local p="$1"
   if [[ "$p" = /* ]]; then
     echo "$p"
+  elif normalize_windows_path "$p" >/dev/null; then
+    normalize_windows_path "$p"
   else
     echo "$ROOT_DIR/$p"
   fi
