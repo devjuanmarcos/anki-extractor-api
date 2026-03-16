@@ -19,6 +19,10 @@ type MockTransactionClient = {
   };
   noteModel: {
     createMany: jest.Mock;
+    findMany: jest.Mock;
+  };
+  note: {
+    createMany: jest.Mock;
   };
 };
 
@@ -37,6 +41,10 @@ describe('ImportsService', () => {
     };
     noteModel: {
       createMany: jest.Mock;
+      findMany: jest.Mock;
+    };
+    note: {
+      createMany: jest.Mock;
     };
   };
 
@@ -52,6 +60,10 @@ describe('ImportsService', () => {
         createMany: jest.fn(),
       },
       noteModel: {
+        createMany: jest.fn(),
+        findMany: jest.fn(),
+      },
+      note: {
         createMany: jest.fn(),
       },
     };
@@ -79,7 +91,7 @@ describe('ImportsService', () => {
     ]);
   });
 
-  it('creates a processing import, extracts the archive, and persists decks and note models', async () => {
+  it('creates a processing import, extracts the archive, and persists parsed notes', async () => {
     await mkdir(config.storage.importsIncomingDir, { recursive: true });
 
     const stagedFilePath = join(
@@ -94,6 +106,12 @@ describe('ImportsService', () => {
       originalName: 'english.apkg',
       status: 'PROCESSING',
     });
+    prisma.noteModel.findMany.mockResolvedValue([
+      {
+        id: 'note-model-1',
+        ankiModelId: '20',
+      },
+    ]);
 
     const result = await service.create({
       originalName: 'english.apkg',
@@ -132,6 +150,7 @@ describe('ImportsService', () => {
           fields: [
             { ordinal: 0, name: 'Front' },
             { ordinal: 1, name: 'Back' },
+            { ordinal: 2, name: 'Audio' },
           ],
           templates: [
             {
@@ -150,10 +169,35 @@ describe('ImportsService', () => {
         },
       ],
     });
+    expect(prisma.note.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          importId: 'import-1',
+          ankiNoteId: '1',
+          modelId: 'note-model-1',
+          fields: {
+            Front: {
+              value: 'Front text <img src="front.png">',
+              mediaReferences: [{ type: 'IMAGE', reference: 'front.png' }],
+            },
+            Back: {
+              value: 'Back text with <b>HTML</b>',
+              mediaReferences: [],
+            },
+            Audio: {
+              value: '[sound:audio.mp3]',
+              mediaReferences: [{ type: 'AUDIO', reference: 'audio.mp3' }],
+            },
+          },
+          tags: ['anki', 'imported'],
+        },
+      ],
+    });
     expect(prisma.import.update).toHaveBeenCalledWith({
       where: { id: 'import-1' },
       data: {
         decksCount: 1,
+        notesCount: 1,
       },
     });
 
@@ -196,7 +240,7 @@ describe('ImportsService', () => {
       expect.objectContaining({
         id: 1,
         mid: 20,
-        flds: 'Front text\x1fBack text',
+        flds: 'Front text <img src="front.png">\x1fBack text with <b>HTML</b>\x1f[sound:audio.mp3]',
       }),
     ]);
     expect(preparedSource.raw.cards).toEqual([
@@ -350,6 +394,53 @@ describe('ImportsService', () => {
     );
   });
 
+  it('marks the import as failed when a note references a missing note model', async () => {
+    await mkdir(config.storage.importsIncomingDir, { recursive: true });
+
+    const stagedFilePath = join(
+      config.storage.importsIncomingDir,
+      'missing-note-model.upload',
+    );
+
+    await writeApkgArchive(stagedFilePath, {
+      missingNoteModelReference: true,
+    });
+
+    prisma.import.create.mockResolvedValue({
+      id: 'import-5',
+      originalName: 'missing-note-model.apkg',
+      status: 'PROCESSING',
+    });
+    prisma.import.update.mockResolvedValue({
+      id: 'import-5',
+      originalName: 'missing-note-model.apkg',
+      status: 'FAILED',
+      failureReason: 'The Anki note 1 references missing note model 999.',
+    });
+
+    await expect(
+      service.create({
+        originalName: 'missing-note-model.apkg',
+        size: 256,
+        temporaryFilePath: stagedFilePath,
+      }),
+    ).rejects.toThrow('The Anki note 1 references missing note model 999.');
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.noteModel.createMany).not.toHaveBeenCalled();
+    expect(prisma.note.createMany).not.toHaveBeenCalled();
+    expect(prisma.import.update).toHaveBeenCalledWith({
+      where: { id: 'import-5' },
+      data: {
+        status: 'FAILED',
+        failureReason: 'The Anki note 1 references missing note model 999.',
+      },
+    });
+    expect(existsSync(join(config.storage.importsTempDir, 'import-5'))).toBe(
+      false,
+    );
+  });
+
   it('rejects invalid uploads before creating an import record', async () => {
     await mkdir(config.storage.importsIncomingDir, { recursive: true });
 
@@ -381,6 +472,7 @@ async function writeApkgArchive(
     corruptCollection?: boolean;
     invalidModelsJson?: boolean;
     invalidDecksJson?: boolean;
+    missingNoteModelReference?: boolean;
   } = {},
 ): Promise<void> {
   const fixtureRoot = await mkdtemp(join(tmpdir(), 'anki-package-fixture-'));
@@ -397,6 +489,7 @@ async function writeApkgArchive(
         createSqliteCollection(collectionPath, {
           invalidModelsJson: options.invalidModelsJson,
           invalidDecksJson: options.invalidDecksJson,
+          missingNoteModelReference: options.missingNoteModelReference,
         });
       }
 
@@ -421,6 +514,7 @@ function createSqliteCollection(
   options: {
     invalidModelsJson?: boolean;
     invalidDecksJson?: boolean;
+    missingNoteModelReference?: boolean;
   } = {},
 ): void {
   const database = new Database(collectionPath);
@@ -503,7 +597,7 @@ function createSqliteCollection(
               '20': {
                 id: 20,
                 name: 'Basic (and reversed card)',
-                flds: [{ name: 'Front' }, { name: 'Back' }],
+                flds: [{ name: 'Front' }, { name: 'Back' }, { name: 'Audio' }],
                 tmpls: [
                   {
                     name: 'Card 1',
@@ -544,11 +638,11 @@ function createSqliteCollection(
       .run(
         1,
         'note-guid',
-        20,
+        options.missingNoteModelReference ? 999 : 20,
         1,
         0,
-        'anki imported',
-        'Front text\x1fBack text',
+        ' anki imported ',
+        'Front text <img src="front.png">\x1fBack text with <b>HTML</b>\x1f[sound:audio.mp3]',
         0,
         123,
         0,

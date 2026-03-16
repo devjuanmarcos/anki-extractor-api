@@ -9,6 +9,10 @@ import { config } from '../../config/config';
 const COLLECTION_FILENAMES = ['collection.anki21', 'collection.anki2'] as const;
 const EXTRACTED_DIRNAME = 'extracted';
 const MEDIA_MAP_FILENAME = 'media';
+const ANKI_FIELD_SEPARATOR = '\x1f';
+const IMAGE_SOURCE_PATTERN =
+  /<img\b[^>]*\bsrc\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi;
+const SOUND_REFERENCE_PATTERN = /\[sound:([^\]\r\n]+)\]/gi;
 
 export type CollectionFileName = (typeof COLLECTION_FILENAMES)[number];
 
@@ -104,6 +108,13 @@ export type PreparedImportCollection = PreparedImportArchive & {
   };
 };
 
+export type PreparedImportNotes = PreparedImportArchive & {
+  raw: {
+    collection: RawAnkiCollectionRow | null;
+    notes: RawAnkiNoteRow[];
+  };
+};
+
 export type ParsedAnkiDeck = {
   ankiDeckId: string;
   name: string;
@@ -132,6 +143,23 @@ export type ParsedAnkiNoteModel = {
 export type ParsedAnkiCollectionMetadata = {
   decks: ParsedAnkiDeck[];
   noteModels: ParsedAnkiNoteModel[];
+};
+
+export type ParsedAnkiNoteMediaReference = {
+  type: 'IMAGE' | 'AUDIO';
+  reference: string;
+};
+
+export type ParsedAnkiNoteField = {
+  value: string;
+  mediaReferences: ParsedAnkiNoteMediaReference[];
+};
+
+export type ParsedAnkiNote = {
+  ankiNoteId: string;
+  ankiModelId: string;
+  tags: string[];
+  fields: Record<string, ParsedAnkiNoteField>;
 };
 
 export class InvalidAnkiPackageError extends Error {
@@ -190,6 +218,20 @@ export class AnkiPackageService {
     };
   }
 
+  async readPreparedImportNotes(
+    importId: string,
+  ): Promise<PreparedImportNotes> {
+    const preparedArchive =
+      await this.resolvePreparedArchiveOrPrepare(importId);
+
+    return {
+      ...preparedArchive,
+      raw: this.loadRawCollectionAndNotes(
+        preparedArchive.collectionFile.filePath,
+      ),
+    };
+  }
+
   async readPreparedImportSource(
     importId: string,
   ): Promise<PreparedImportSource> {
@@ -215,6 +257,60 @@ export class AnkiPackageService {
       noteModels: this.parseNoteModels(collection.models),
       decks: this.parseDecks(collection.decks),
     };
+  }
+
+  parseNotes(
+    rawNotes: RawAnkiNoteRow[],
+    noteModels: ParsedAnkiNoteModel[],
+  ): ParsedAnkiNote[] {
+    const noteModelsById = new Map(
+      noteModels.map(noteModel => [noteModel.ankiModelId, noteModel]),
+    );
+
+    return rawNotes.map(rawNote => {
+      const noteModel = noteModelsById.get(String(rawNote.mid));
+
+      if (!noteModel) {
+        throw new InvalidAnkiPackageError(
+          `The Anki note ${rawNote.id} references missing note model ${rawNote.mid}.`,
+        );
+      }
+
+      const orderedFields = noteModel.fields
+        .map((field, index) => ({ ...field, index }))
+        .sort(
+          (left, right) =>
+            left.ordinal - right.ordinal || left.index - right.index,
+        );
+      const fieldValues = rawNote.flds.split(ANKI_FIELD_SEPARATOR);
+
+      if (fieldValues.length !== orderedFields.length) {
+        throw new InvalidAnkiPackageError(
+          `The Anki note ${rawNote.id} field count does not match note model ${noteModel.ankiModelId}.`,
+        );
+      }
+
+      const fields = Object.fromEntries(
+        orderedFields.map((field, index) => {
+          const value = fieldValues[index] ?? '';
+
+          return [
+            field.name,
+            {
+              value,
+              mediaReferences: this.detectMediaReferences(value),
+            },
+          ];
+        }),
+      );
+
+      return {
+        ankiNoteId: String(rawNote.id),
+        ankiModelId: noteModel.ankiModelId,
+        tags: this.parseTags(rawNote.tags),
+        fields,
+      };
+    });
   }
 
   private async resolvePreparedArchiveOrPrepare(
@@ -442,6 +538,20 @@ export class AnkiPackageService {
     }));
   }
 
+  private loadRawCollectionAndNotes(
+    collectionPath: string,
+  ): PreparedImportNotes['raw'] {
+    return this.withReadonlyDatabase(collectionPath, database => ({
+      collection:
+        database
+          .prepare<[], RawAnkiCollectionRow>('SELECT * FROM col LIMIT 1')
+          .get() ?? null,
+      notes: database
+        .prepare<[], RawAnkiNoteRow>('SELECT * FROM notes ORDER BY id')
+        .all(),
+    }));
+  }
+
   private loadRawCollectionData(
     collectionPath: string,
   ): RawAnkiCollectionRow | null {
@@ -655,6 +765,48 @@ export class AnkiPackageService {
     }
 
     return left.localeCompare(right);
+  }
+
+  private parseTags(rawTags: string): string[] {
+    return rawTags.split(/\s+/).filter(tag => tag.length > 0);
+  }
+
+  private detectMediaReferences(value: string): ParsedAnkiNoteMediaReference[] {
+    const references: Array<ParsedAnkiNoteMediaReference & { index: number }> =
+      [];
+    let match: RegExpExecArray | null;
+
+    IMAGE_SOURCE_PATTERN.lastIndex = 0;
+
+    while ((match = IMAGE_SOURCE_PATTERN.exec(value)) !== null) {
+      const reference = match[1] ?? match[2] ?? match[3];
+
+      if (reference) {
+        references.push({
+          type: 'IMAGE',
+          reference,
+          index: match.index,
+        });
+      }
+    }
+
+    SOUND_REFERENCE_PATTERN.lastIndex = 0;
+
+    while ((match = SOUND_REFERENCE_PATTERN.exec(value)) !== null) {
+      const reference = match[1];
+
+      if (reference) {
+        references.push({
+          type: 'AUDIO',
+          reference,
+          index: match.index,
+        });
+      }
+    }
+
+    return references
+      .sort((left, right) => left.index - right.index)
+      .map(({ type, reference }) => ({ type, reference }));
   }
 
   private withReadonlyDatabase<T>(

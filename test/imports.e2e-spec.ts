@@ -75,7 +75,7 @@ describe('Imports API (e2e)', () => {
     await app.close();
   });
 
-  it('creates a processing import, extracts its files, and persists decks and note models', async () => {
+  it('creates a processing import, extracts its files, and persists parsed notes', async () => {
     const fileContents = await createApkgBuffer();
     const server = app.getHttpServer() as Parameters<typeof request>[0];
 
@@ -105,6 +105,7 @@ describe('Imports API (e2e)', () => {
       fileSize: fileContents.length,
       failureReason: null,
       decksCount: 1,
+      notesCount: 1,
     });
 
     const persistedDecks = await prisma.deck.findMany({
@@ -114,6 +115,13 @@ describe('Imports API (e2e)', () => {
     const persistedNoteModels = await prisma.noteModel.findMany({
       where: { importId: body.importId },
       orderBy: { ankiModelId: 'asc' },
+    });
+    const persistedNotes = await prisma.note.findMany({
+      where: { importId: body.importId },
+      include: {
+        model: true,
+      },
+      orderBy: { ankiNoteId: 'asc' },
     });
 
     expect(persistedDecks).toEqual([
@@ -132,6 +140,7 @@ describe('Imports API (e2e)', () => {
         fields: [
           { ordinal: 0, name: 'Front' },
           { ordinal: 1, name: 'Back' },
+          { ordinal: 2, name: 'Audio' },
         ],
         templates: [
           {
@@ -149,6 +158,30 @@ describe('Imports API (e2e)', () => {
         ],
       }),
     ]);
+    expect(persistedNotes).toHaveLength(1);
+    expect(persistedNotes[0]).toMatchObject({
+      importId: body.importId,
+      ankiNoteId: '1',
+      tags: ['anki', 'imported'],
+      fields: {
+        Front: {
+          value: 'Front text <img src="front.png">',
+          mediaReferences: [{ type: 'IMAGE', reference: 'front.png' }],
+        },
+        Back: {
+          value: 'Back text with <b>HTML</b>',
+          mediaReferences: [],
+        },
+        Audio: {
+          value: '[sound:audio.mp3]',
+          mediaReferences: [{ type: 'AUDIO', reference: 'audio.mp3' }],
+        },
+      },
+    });
+    expect(persistedNotes[0]?.model).toMatchObject({
+      importId: body.importId,
+      ankiModelId: '20',
+    });
 
     const workspacePath = join(process.env.IMPORTS_TEMP_DIR!, body.importId);
     const storedFilePath = join(workspacePath, 'source.apkg');
@@ -239,6 +272,42 @@ describe('Imports API (e2e)', () => {
     ).resolves.toBe(0);
   });
 
+  it('marks the import as failed when a note references a missing note model', async () => {
+    const server = app.getHttpServer() as Parameters<typeof request>[0];
+    const fileContents = await createApkgBuffer({
+      missingNoteModelReference: true,
+    });
+
+    const response = await request(server)
+      .post('/api/v1/imports')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .attach('file', fileContents, 'missing-note-model.apkg')
+      .expect(422);
+
+    expect((response.body as { message: string }).message).toBe(
+      'The Anki note 1 references missing note model 999.',
+    );
+
+    const failedImport = await prisma.import.findFirst({
+      where: { originalName: 'missing-note-model.apkg' },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    expect(failedImport).toMatchObject({
+      originalName: 'missing-note-model.apkg',
+      status: 'FAILED',
+      failureReason: 'The Anki note 1 references missing note model 999.',
+    });
+    expect(
+      existsSync(join(process.env.IMPORTS_TEMP_DIR!, failedImport!.id)),
+    ).toBe(false);
+
+    await expect(prisma.note.count()).resolves.toBe(0);
+    await expect(
+      prisma.noteModel.count({ where: { importId: failedImport!.id } }),
+    ).resolves.toBe(0);
+  });
+
   it('returns 400 when the multipart payload does not contain file', async () => {
     const server = app.getHttpServer() as Parameters<typeof request>[0];
     const beforeCount = await prisma.import.count();
@@ -293,6 +362,7 @@ async function createApkgBuffer(
     withCollection?: boolean;
     invalidModelsJson?: boolean;
     invalidDecksJson?: boolean;
+    missingNoteModelReference?: boolean;
   } = {},
 ): Promise<Buffer> {
   const fixtureRoot = await mkdtemp(join(tmpdir(), 'anki-package-fixture-'));
@@ -305,6 +375,7 @@ async function createApkgBuffer(
       createSqliteCollection(collectionPath, {
         invalidModelsJson: options.invalidModelsJson,
         invalidDecksJson: options.invalidDecksJson,
+        missingNoteModelReference: options.missingNoteModelReference,
       });
       zip.addLocalFile(collectionPath);
     }
@@ -327,6 +398,7 @@ function createSqliteCollection(
   options: {
     invalidModelsJson?: boolean;
     invalidDecksJson?: boolean;
+    missingNoteModelReference?: boolean;
   } = {},
 ): void {
   const database = new Database(collectionPath);
@@ -409,7 +481,7 @@ function createSqliteCollection(
               '20': {
                 id: 20,
                 name: 'Basic (and reversed card)',
-                flds: [{ name: 'Front' }, { name: 'Back' }],
+                flds: [{ name: 'Front' }, { name: 'Back' }, { name: 'Audio' }],
                 tmpls: [
                   {
                     name: 'Card 1',
@@ -450,11 +522,11 @@ function createSqliteCollection(
       .run(
         1,
         'note-guid',
-        20,
+        options.missingNoteModelReference ? 999 : 20,
         1,
         0,
-        'anki imported',
-        'Front text\x1fBack text',
+        ' anki imported ',
+        'Front text <img src="front.png">\x1fBack text with <b>HTML</b>\x1f[sound:audio.mp3]',
         0,
         123,
         0,

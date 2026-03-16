@@ -11,6 +11,7 @@ import { PrismaService } from '../../common/services/prisma.service';
 import { config } from '../../config/config';
 import {
   ParsedAnkiCollectionMetadata,
+  ParsedAnkiNote,
   AnkiPackageService,
   InvalidAnkiPackageError,
 } from './anki-package.service';
@@ -50,13 +51,17 @@ export class ImportsService {
       await mkdir(workspacePath, { recursive: true });
       await rename(dto.temporaryFilePath, this.getSourceArchivePath(importId));
       const preparedCollection =
-        await this.ankiPackageService.readPreparedImportCollection(importId);
+        await this.ankiPackageService.readPreparedImportNotes(importId);
       const collectionMetadata =
         this.ankiPackageService.parseCollectionMetadata(
           preparedCollection.raw.collection,
         );
+      const notes = this.ankiPackageService.parseNotes(
+        preparedCollection.raw.notes,
+        collectionMetadata.noteModels,
+      );
 
-      await this.persistCollectionMetadata(importId, collectionMetadata);
+      await this.persistCollectionMetadata(importId, collectionMetadata, notes);
 
       return ImportEntity.fromRecord(createdImport);
     } catch (error) {
@@ -112,6 +117,7 @@ export class ImportsService {
   private async persistCollectionMetadata(
     importId: string,
     collectionMetadata: ParsedAnkiCollectionMetadata,
+    notes: ParsedAnkiNote[],
   ): Promise<void> {
     await this.prisma.$transaction(async transaction => {
       if (collectionMetadata.decks.length > 0) {
@@ -137,10 +143,50 @@ export class ImportsService {
         });
       }
 
+      const persistedNoteModels =
+        collectionMetadata.noteModels.length > 0
+          ? await transaction.noteModel.findMany({
+              where: { importId },
+              select: {
+                id: true,
+                ankiModelId: true,
+              },
+            })
+          : [];
+      const noteModelIds = new Map(
+        persistedNoteModels.map(noteModel => [
+          noteModel.ankiModelId,
+          noteModel.id,
+        ]),
+      );
+
+      if (notes.length > 0) {
+        await transaction.note.createMany({
+          data: notes.map(note => {
+            const modelId = noteModelIds.get(note.ankiModelId);
+
+            if (!modelId) {
+              throw new InvalidAnkiPackageError(
+                `The Anki note ${note.ankiNoteId} references missing note model ${note.ankiModelId}.`,
+              );
+            }
+
+            return {
+              importId,
+              ankiNoteId: note.ankiNoteId,
+              modelId,
+              fields: note.fields,
+              tags: note.tags,
+            };
+          }),
+        });
+      }
+
       await transaction.import.update({
         where: { id: importId },
         data: {
           decksCount: collectionMetadata.decks.length,
+          notesCount: notes.length,
         },
       });
     });
