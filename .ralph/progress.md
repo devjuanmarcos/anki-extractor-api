@@ -6,6 +6,44 @@ Started: Mon, Mar 16, 2026 12:11:31 AM
 
 ---
 
+## [2026-03-16 11:04:16 -03:00] - US-004: Persistir decks e modelos de nota
+Thread: 
+Run: 20260316-102951-949 (iteration 2)
+Run log: D:/DEVJUANMARCOS/PROJETOS/KIKITO/anki-extractor-api/.ralph/runs/run-20260316-102951-949-iter-2.log
+Run summary: D:/DEVJUANMARCOS/PROJETOS/KIKITO/anki-extractor-api/.ralph/runs/run-20260316-102951-949-iter-2.md
+- Guardrails reviewed: yes
+- No-commit run: false
+- Commit: `21fbc7b feat(imports): persist decks and note models`
+- Post-commit status: `.agents/tasks/prd-anki-extractor.json`, `.ralph/progress.md`, `.ralph/activity.log`, `.ralph/runs/run-20260316-102951-949-iter-1.md`
+- Verification:
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm prisma:generate` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm prisma:migrate` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm lint` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm build` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm test` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm test:e2e` -> PASS
+- Files changed:
+  - src/modules/imports/anki-package.service.ts
+  - src/modules/imports/imports.service.ts
+  - src/modules/imports/imports.service.spec.ts
+  - test/imports.e2e-spec.ts
+  - .ralph/progress.md
+- What was implemented
+  - Extended the import pipeline to parse `col.models` and `col.decks`, preserving original Anki identifiers for `NoteModel` and `Deck`.
+  - Persisted note model field names and card template metadata as JSON, keeping hierarchical deck names like `English::Vocabulary::Advanced` unchanged.
+  - Added a collection-only read path plus transactional persistence so invalid `col.models` or `col.decks` JSON fails the import without leaving partial deck or note model rows.
+  - Covered the success path and both invalid-JSON failure paths with unit and e2e tests.
+- **Learnings for future iterations:**
+  - Patterns discovered
+    - `col.models` and `col.decks` are keyed by Anki IDs, so parsing the whole payload before any insert is the cleanest way to keep relational writes atomic.
+    - `createMany` handles the current PostgreSQL JSON columns correctly for note model field/template payloads.
+  - Gotchas encountered
+    - Loading the full notes/cards tables during `US-004` would be unnecessary overhead, so a collection-only read path keeps this step bounded to the metadata needed now.
+    - The imports e2e suite benefits from a per-file timeout override because Nest bootstrap plus PostgreSQL can occasionally exceed Jest's 5-second default on this Windows setup.
+  - Useful context
+    - Keeping the import status as `PROCESSING` after deck/model persistence preserves the existing contract while leaving later stories room to continue the pipeline with notes and cards.
+---
+
 ## [2026-03-16 10:49:23 -03:00] - US-003: Extrair o arquivo .apkg e localizar fontes internas
 Thread: 
 Run: 20260316-102951-949 (iteration 1)
