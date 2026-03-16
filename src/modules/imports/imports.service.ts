@@ -11,6 +11,7 @@ import { PrismaService } from '../../common/services/prisma.service';
 import { config } from '../../config/config';
 import {
   ParsedAnkiCollectionMetadata,
+  ParsedAnkiCard,
   ParsedAnkiNote,
   AnkiPackageService,
   InvalidAnkiPackageError,
@@ -51,7 +52,7 @@ export class ImportsService {
       await mkdir(workspacePath, { recursive: true });
       await rename(dto.temporaryFilePath, this.getSourceArchivePath(importId));
       const preparedCollection =
-        await this.ankiPackageService.readPreparedImportNotes(importId);
+        await this.ankiPackageService.readPreparedImportSource(importId);
       const collectionMetadata =
         this.ankiPackageService.parseCollectionMetadata(
           preparedCollection.raw.collection,
@@ -60,8 +61,16 @@ export class ImportsService {
         preparedCollection.raw.notes,
         collectionMetadata.noteModels,
       );
+      const cards = this.ankiPackageService.parseCards(
+        preparedCollection.raw.cards,
+      );
 
-      await this.persistCollectionMetadata(importId, collectionMetadata, notes);
+      await this.persistCollectionMetadata(
+        importId,
+        collectionMetadata,
+        notes,
+        cards,
+      );
 
       return ImportEntity.fromRecord(createdImport);
     } catch (error) {
@@ -118,6 +127,7 @@ export class ImportsService {
     importId: string,
     collectionMetadata: ParsedAnkiCollectionMetadata,
     notes: ParsedAnkiNote[],
+    cards: ParsedAnkiCard[],
   ): Promise<void> {
     await this.prisma.$transaction(async transaction => {
       if (collectionMetadata.decks.length > 0) {
@@ -142,6 +152,20 @@ export class ImportsService {
           })),
         });
       }
+
+      const persistedDecks =
+        cards.length > 0
+          ? await transaction.deck.findMany({
+              where: { importId },
+              select: {
+                id: true,
+                ankiDeckId: true,
+              },
+            })
+          : [];
+      const deckIds = new Map(
+        persistedDecks.map(deck => [deck.ankiDeckId, deck.id]),
+      );
 
       const persistedNoteModels =
         collectionMetadata.noteModels.length > 0
@@ -182,11 +206,63 @@ export class ImportsService {
         });
       }
 
+      const persistedNotes =
+        cards.length > 0
+          ? await transaction.note.findMany({
+              where: { importId },
+              select: {
+                id: true,
+                ankiNoteId: true,
+              },
+            })
+          : [];
+      const noteIds = new Map(
+        persistedNotes.map(note => [note.ankiNoteId, note.id]),
+      );
+
+      if (cards.length > 0) {
+        await transaction.card.createMany({
+          data: cards.map(card => {
+            const noteId = noteIds.get(card.ankiNoteId);
+
+            if (!noteId) {
+              throw new InvalidAnkiPackageError(
+                `The Anki card ${card.ankiCardId} references missing note ${card.ankiNoteId}.`,
+              );
+            }
+
+            const deckId = deckIds.get(card.ankiDeckId);
+
+            if (!deckId) {
+              throw new InvalidAnkiPackageError(
+                `The Anki card ${card.ankiCardId} references missing deck ${card.ankiDeckId}.`,
+              );
+            }
+
+            return {
+              importId,
+              ankiCardId: card.ankiCardId,
+              noteId,
+              deckId,
+              ordinal: card.ordinal,
+              cardType: card.type,
+              queue: card.queue,
+              dueDate: card.due,
+              interval: card.ivl,
+              easeFactor: card.factor,
+              repetitions: card.reps,
+              lapses: card.lapses,
+            };
+          }),
+        });
+      }
+
       await transaction.import.update({
         where: { id: importId },
         data: {
           decksCount: collectionMetadata.decks.length,
           notesCount: notes.length,
+          cardsCount: cards.length,
         },
       });
     });

@@ -75,7 +75,7 @@ describe('Imports API (e2e)', () => {
     await app.close();
   });
 
-  it('creates a processing import, extracts its files, and persists parsed notes', async () => {
+  it('creates a processing import, extracts its files, and persists parsed notes and cards', async () => {
     const fileContents = await createApkgBuffer();
     const server = app.getHttpServer() as Parameters<typeof request>[0];
 
@@ -106,6 +106,7 @@ describe('Imports API (e2e)', () => {
       failureReason: null,
       decksCount: 1,
       notesCount: 1,
+      cardsCount: 2,
     });
 
     const persistedDecks = await prisma.deck.findMany({
@@ -122,6 +123,14 @@ describe('Imports API (e2e)', () => {
         model: true,
       },
       orderBy: { ankiNoteId: 'asc' },
+    });
+    const persistedCards = await prisma.card.findMany({
+      where: { importId: body.importId },
+      include: {
+        note: true,
+        deck: true,
+      },
+      orderBy: { ordinal: 'asc' },
     });
 
     expect(persistedDecks).toEqual([
@@ -182,6 +191,35 @@ describe('Imports API (e2e)', () => {
       importId: body.importId,
       ankiModelId: '20',
     });
+    expect(persistedCards).toHaveLength(2);
+    expect(persistedCards[0]).toMatchObject({
+      importId: body.importId,
+      ankiCardId: '10',
+      ordinal: 0,
+      cardType: 0,
+      queue: 0,
+      dueDate: 0,
+      interval: 0,
+      easeFactor: 0,
+      repetitions: 0,
+      lapses: 0,
+    });
+    expect(persistedCards[0]?.note.ankiNoteId).toBe('1');
+    expect(persistedCards[0]?.deck.ankiDeckId).toBe('200');
+    expect(persistedCards[1]).toMatchObject({
+      importId: body.importId,
+      ankiCardId: '11',
+      ordinal: 1,
+      cardType: 2,
+      queue: 2,
+      dueDate: 42,
+      interval: 7,
+      easeFactor: 2500,
+      repetitions: 3,
+      lapses: 1,
+    });
+    expect(persistedCards[1]?.note.ankiNoteId).toBe('1');
+    expect(persistedCards[1]?.deck.ankiDeckId).toBe('200');
 
     const workspacePath = join(process.env.IMPORTS_TEMP_DIR!, body.importId);
     const storedFilePath = join(workspacePath, 'source.apkg');
@@ -308,6 +346,42 @@ describe('Imports API (e2e)', () => {
     ).resolves.toBe(0);
   });
 
+  it('marks the import as failed when a card references a missing deck', async () => {
+    const server = app.getHttpServer() as Parameters<typeof request>[0];
+    const fileContents = await createApkgBuffer({
+      missingCardDeckReference: true,
+    });
+
+    const response = await request(server)
+      .post('/api/v1/imports')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .attach('file', fileContents, 'missing-card-deck.apkg')
+      .expect(422);
+
+    expect((response.body as { message: string }).message).toBe(
+      'The Anki card 11 references missing deck 999.',
+    );
+
+    const failedImport = await prisma.import.findFirst({
+      where: { originalName: 'missing-card-deck.apkg' },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    expect(failedImport).toMatchObject({
+      originalName: 'missing-card-deck.apkg',
+      status: 'FAILED',
+      failureReason: 'The Anki card 11 references missing deck 999.',
+    });
+    expect(
+      existsSync(join(process.env.IMPORTS_TEMP_DIR!, failedImport!.id)),
+    ).toBe(false);
+
+    await expect(prisma.deck.count()).resolves.toBe(0);
+    await expect(prisma.noteModel.count()).resolves.toBe(0);
+    await expect(prisma.note.count()).resolves.toBe(0);
+    await expect(prisma.card.count()).resolves.toBe(0);
+  });
+
   it('returns 400 when the multipart payload does not contain file', async () => {
     const server = app.getHttpServer() as Parameters<typeof request>[0];
     const beforeCount = await prisma.import.count();
@@ -363,6 +437,7 @@ async function createApkgBuffer(
     invalidModelsJson?: boolean;
     invalidDecksJson?: boolean;
     missingNoteModelReference?: boolean;
+    missingCardDeckReference?: boolean;
   } = {},
 ): Promise<Buffer> {
   const fixtureRoot = await mkdtemp(join(tmpdir(), 'anki-package-fixture-'));
@@ -376,6 +451,7 @@ async function createApkgBuffer(
         invalidModelsJson: options.invalidModelsJson,
         invalidDecksJson: options.invalidDecksJson,
         missingNoteModelReference: options.missingNoteModelReference,
+        missingCardDeckReference: options.missingCardDeckReference,
       });
       zip.addLocalFile(collectionPath);
     }
@@ -399,6 +475,7 @@ function createSqliteCollection(
     invalidModelsJson?: boolean;
     invalidDecksJson?: boolean;
     missingNoteModelReference?: boolean;
+    missingCardDeckReference?: boolean;
   } = {},
 ): void {
   const database = new Database(collectionPath);
@@ -542,6 +619,35 @@ function createSqliteCollection(
         `,
       )
       .run(10, 1, 200, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '');
+
+    database
+      .prepare(
+        `
+          INSERT INTO cards (
+            id, nid, did, ord, mod, usn, type, queue, due, ivl, factor, reps, lapses, left, odue, odid, flags, data
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+      )
+      .run(
+        11,
+        1,
+        options.missingCardDeckReference ? 999 : 200,
+        1,
+        1,
+        0,
+        2,
+        2,
+        42,
+        7,
+        2500,
+        3,
+        1,
+        0,
+        0,
+        0,
+        0,
+        '',
+      );
   } finally {
     database.close();
   }

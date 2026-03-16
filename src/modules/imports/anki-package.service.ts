@@ -162,6 +162,20 @@ export type ParsedAnkiNote = {
   fields: Record<string, ParsedAnkiNoteField>;
 };
 
+export type ParsedAnkiCard = {
+  ankiCardId: string;
+  ankiNoteId: string;
+  ankiDeckId: string;
+  ordinal: number;
+  type: number;
+  queue: number;
+  due: number | null;
+  ivl: number | null;
+  factor: number | null;
+  reps: number;
+  lapses: number;
+};
+
 export class InvalidAnkiPackageError extends Error {
   constructor(message: string) {
     super(message);
@@ -311,6 +325,22 @@ export class AnkiPackageService {
         fields,
       };
     });
+  }
+
+  parseCards(rawCards: RawAnkiCardRow[]): ParsedAnkiCard[] {
+    return rawCards.map(rawCard => ({
+      ankiCardId: String(rawCard.id),
+      ankiNoteId: String(rawCard.nid),
+      ankiDeckId: String(rawCard.did),
+      ordinal: rawCard.ord,
+      type: rawCard.type,
+      queue: rawCard.queue,
+      due: this.resolveOptionalInteger(rawCard.due),
+      ivl: this.resolveOptionalInteger(rawCard.ivl),
+      factor: this.resolveOptionalInteger(rawCard.factor),
+      reps: rawCard.reps,
+      lapses: rawCard.lapses,
+    }));
   }
 
   private async resolvePreparedArchiveOrPrepare(
@@ -744,6 +774,14 @@ export class AnkiPackageService {
     }
 
     return fallback;
+  }
+
+  private resolveOptionalInteger(value: unknown): number | null {
+    if (typeof value === 'number' && Number.isInteger(value)) {
+      return value;
+    }
+
+    return null;
   }
 
   private compareAnkiIdentifiers(left: string, right: string): number {

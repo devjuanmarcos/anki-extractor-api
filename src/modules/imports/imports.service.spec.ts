@@ -16,12 +16,17 @@ type MockTransactionClient = {
   };
   deck: {
     createMany: jest.Mock;
+    findMany: jest.Mock;
   };
   noteModel: {
     createMany: jest.Mock;
     findMany: jest.Mock;
   };
   note: {
+    createMany: jest.Mock;
+    findMany: jest.Mock;
+  };
+  card: {
     createMany: jest.Mock;
   };
 };
@@ -38,12 +43,17 @@ describe('ImportsService', () => {
     };
     deck: {
       createMany: jest.Mock;
+      findMany: jest.Mock;
     };
     noteModel: {
       createMany: jest.Mock;
       findMany: jest.Mock;
     };
     note: {
+      createMany: jest.Mock;
+      findMany: jest.Mock;
+    };
+    card: {
       createMany: jest.Mock;
     };
   };
@@ -58,12 +68,17 @@ describe('ImportsService', () => {
       },
       deck: {
         createMany: jest.fn(),
+        findMany: jest.fn(),
       },
       noteModel: {
         createMany: jest.fn(),
         findMany: jest.fn(),
       },
       note: {
+        createMany: jest.fn(),
+        findMany: jest.fn(),
+      },
+      card: {
         createMany: jest.fn(),
       },
     };
@@ -91,7 +106,7 @@ describe('ImportsService', () => {
     ]);
   });
 
-  it('creates a processing import, extracts the archive, and persists parsed notes', async () => {
+  it('creates a processing import, extracts the archive, and persists parsed notes and cards', async () => {
     await mkdir(config.storage.importsIncomingDir, { recursive: true });
 
     const stagedFilePath = join(
@@ -106,10 +121,22 @@ describe('ImportsService', () => {
       originalName: 'english.apkg',
       status: 'PROCESSING',
     });
+    prisma.deck.findMany.mockResolvedValue([
+      {
+        id: 'deck-1',
+        ankiDeckId: '200',
+      },
+    ]);
     prisma.noteModel.findMany.mockResolvedValue([
       {
         id: 'note-model-1',
         ankiModelId: '20',
+      },
+    ]);
+    prisma.note.findMany.mockResolvedValue([
+      {
+        id: 'note-1',
+        ankiNoteId: '1',
       },
     ]);
 
@@ -193,11 +220,44 @@ describe('ImportsService', () => {
         },
       ],
     });
+    expect(prisma.card.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          importId: 'import-1',
+          ankiCardId: '10',
+          noteId: 'note-1',
+          deckId: 'deck-1',
+          ordinal: 0,
+          cardType: 0,
+          queue: 0,
+          dueDate: 0,
+          interval: 0,
+          easeFactor: 0,
+          repetitions: 0,
+          lapses: 0,
+        },
+        {
+          importId: 'import-1',
+          ankiCardId: '11',
+          noteId: 'note-1',
+          deckId: 'deck-1',
+          ordinal: 1,
+          cardType: 2,
+          queue: 2,
+          dueDate: 42,
+          interval: 7,
+          easeFactor: 2500,
+          repetitions: 3,
+          lapses: 1,
+        },
+      ],
+    });
     expect(prisma.import.update).toHaveBeenCalledWith({
       where: { id: 'import-1' },
       data: {
         decksCount: 1,
         notesCount: 1,
+        cardsCount: 2,
       },
     });
 
@@ -248,6 +308,13 @@ describe('ImportsService', () => {
         id: 10,
         nid: 1,
         did: 200,
+        ord: 0,
+      }),
+      expect.objectContaining({
+        id: 11,
+        nid: 1,
+        did: 200,
+        ord: 1,
       }),
     ]);
   });
@@ -441,6 +508,132 @@ describe('ImportsService', () => {
     );
   });
 
+  it('marks the import as failed when a card references a missing note', async () => {
+    await mkdir(config.storage.importsIncomingDir, { recursive: true });
+
+    const stagedFilePath = join(
+      config.storage.importsIncomingDir,
+      'missing-card-note.upload',
+    );
+
+    await writeApkgArchive(stagedFilePath, {
+      missingCardNoteReference: true,
+    });
+
+    prisma.import.create.mockResolvedValue({
+      id: 'import-6',
+      originalName: 'missing-card-note.apkg',
+      status: 'PROCESSING',
+    });
+    prisma.deck.findMany.mockResolvedValue([
+      {
+        id: 'deck-1',
+        ankiDeckId: '200',
+      },
+    ]);
+    prisma.noteModel.findMany.mockResolvedValue([
+      {
+        id: 'note-model-1',
+        ankiModelId: '20',
+      },
+    ]);
+    prisma.note.findMany.mockResolvedValue([
+      {
+        id: 'note-1',
+        ankiNoteId: '1',
+      },
+    ]);
+    prisma.import.update.mockResolvedValue({
+      id: 'import-6',
+      originalName: 'missing-card-note.apkg',
+      status: 'FAILED',
+      failureReason: 'The Anki card 11 references missing note 999.',
+    });
+
+    await expect(
+      service.create({
+        originalName: 'missing-card-note.apkg',
+        size: 256,
+        temporaryFilePath: stagedFilePath,
+      }),
+    ).rejects.toThrow('The Anki card 11 references missing note 999.');
+
+    expect(prisma.card.createMany).not.toHaveBeenCalled();
+    expect(prisma.import.update).toHaveBeenCalledWith({
+      where: { id: 'import-6' },
+      data: {
+        status: 'FAILED',
+        failureReason: 'The Anki card 11 references missing note 999.',
+      },
+    });
+    expect(existsSync(join(config.storage.importsTempDir, 'import-6'))).toBe(
+      false,
+    );
+  });
+
+  it('marks the import as failed when a card references a missing deck', async () => {
+    await mkdir(config.storage.importsIncomingDir, { recursive: true });
+
+    const stagedFilePath = join(
+      config.storage.importsIncomingDir,
+      'missing-card-deck.upload',
+    );
+
+    await writeApkgArchive(stagedFilePath, {
+      missingCardDeckReference: true,
+    });
+
+    prisma.import.create.mockResolvedValue({
+      id: 'import-7',
+      originalName: 'missing-card-deck.apkg',
+      status: 'PROCESSING',
+    });
+    prisma.deck.findMany.mockResolvedValue([
+      {
+        id: 'deck-1',
+        ankiDeckId: '200',
+      },
+    ]);
+    prisma.noteModel.findMany.mockResolvedValue([
+      {
+        id: 'note-model-1',
+        ankiModelId: '20',
+      },
+    ]);
+    prisma.note.findMany.mockResolvedValue([
+      {
+        id: 'note-1',
+        ankiNoteId: '1',
+      },
+    ]);
+    prisma.import.update.mockResolvedValue({
+      id: 'import-7',
+      originalName: 'missing-card-deck.apkg',
+      status: 'FAILED',
+      failureReason: 'The Anki card 11 references missing deck 999.',
+    });
+
+    await expect(
+      service.create({
+        originalName: 'missing-card-deck.apkg',
+        size: 256,
+        temporaryFilePath: stagedFilePath,
+      }),
+    ).rejects.toThrow('The Anki card 11 references missing deck 999.');
+
+    expect(prisma.card.createMany).not.toHaveBeenCalled();
+    expect(prisma.import.update).toHaveBeenCalledWith({
+      where: { id: 'import-7' },
+      data: {
+        status: 'FAILED',
+        failureReason: 'The Anki card 11 references missing deck 999.',
+      },
+    });
+    expect(existsSync(join(config.storage.importsTempDir, 'import-7'))).toBe(
+      false,
+    );
+  });
+
   it('rejects invalid uploads before creating an import record', async () => {
     await mkdir(config.storage.importsIncomingDir, { recursive: true });
 
@@ -473,6 +666,8 @@ async function writeApkgArchive(
     invalidModelsJson?: boolean;
     invalidDecksJson?: boolean;
     missingNoteModelReference?: boolean;
+    missingCardNoteReference?: boolean;
+    missingCardDeckReference?: boolean;
   } = {},
 ): Promise<void> {
   const fixtureRoot = await mkdtemp(join(tmpdir(), 'anki-package-fixture-'));
@@ -490,6 +685,8 @@ async function writeApkgArchive(
           invalidModelsJson: options.invalidModelsJson,
           invalidDecksJson: options.invalidDecksJson,
           missingNoteModelReference: options.missingNoteModelReference,
+          missingCardNoteReference: options.missingCardNoteReference,
+          missingCardDeckReference: options.missingCardDeckReference,
         });
       }
 
@@ -515,6 +712,8 @@ function createSqliteCollection(
     invalidModelsJson?: boolean;
     invalidDecksJson?: boolean;
     missingNoteModelReference?: boolean;
+    missingCardNoteReference?: boolean;
+    missingCardDeckReference?: boolean;
   } = {},
 ): void {
   const database = new Database(collectionPath);
@@ -658,6 +857,35 @@ function createSqliteCollection(
         `,
       )
       .run(10, 1, 200, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '');
+
+    database
+      .prepare(
+        `
+          INSERT INTO cards (
+            id, nid, did, ord, mod, usn, type, queue, due, ivl, factor, reps, lapses, left, odue, odid, flags, data
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+      )
+      .run(
+        11,
+        options.missingCardNoteReference ? 999 : 1,
+        options.missingCardDeckReference ? 999 : 200,
+        1,
+        1,
+        0,
+        2,
+        2,
+        42,
+        7,
+        2500,
+        3,
+        1,
+        0,
+        0,
+        0,
+        0,
+        '',
+      );
   } finally {
     database.close();
   }
