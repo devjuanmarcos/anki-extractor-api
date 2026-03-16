@@ -5,6 +5,61 @@ Started: Mon, Mar 16, 2026 12:11:31 AM
 - (add reusable patterns here)
 
 ---
+## [2026-03-16 12:34:54 -03:00] - US-009: Expor consulta de notas, cards e midias
+Thread:
+Run: 20260316-102951-949 (iteration 7)
+Run log: D:/DEVJUANMARCOS/PROJETOS/KIKITO/anki-extractor-api/.ralph/runs/run-20260316-102951-949-iter-7.log
+Run summary: D:/DEVJUANMARCOS/PROJETOS/KIKITO/anki-extractor-api/.ralph/runs/run-20260316-102951-949-iter-7.md
+- Guardrails reviewed: yes
+- No-commit run: false
+- Commit: e3c9fdb feat(imports): expose note card and media queries
+- Post-commit status: `clean`
+- Verification:
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm prisma:generate` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm prisma:migrate` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm lint` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm build` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm test` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm test:e2e` -> PASS
+- Files changed:
+  - .agents/tasks/prd-anki-extractor.json
+  - .ralph/progress.md
+  - .ralph/runs/run-20260316-102951-949-iter-6.md
+  - src/modules/imports/cards.controller.ts
+  - src/modules/imports/dto/list-import-cards-query.dto.ts
+  - src/modules/imports/dto/list-import-media-query.dto.ts
+  - src/modules/imports/dto/list-import-notes-query.dto.ts
+  - src/modules/imports/entities/card.entity.ts
+  - src/modules/imports/entities/media.entity.ts
+  - src/modules/imports/entities/note.entity.ts
+  - src/modules/imports/entities/paginated-cards.entity.ts
+  - src/modules/imports/entities/paginated-media.entity.ts
+  - src/modules/imports/entities/paginated-notes.entity.ts
+  - src/modules/imports/entities/shared-content.entity.ts
+  - src/modules/imports/imports.controller.ts
+  - src/modules/imports/imports.module.ts
+  - src/modules/imports/imports.service.spec.ts
+  - src/modules/imports/imports.service.ts
+  - src/modules/imports/media.controller.ts
+  - src/modules/imports/notes.controller.ts
+  - src/modules/imports/schemas/import-query.schema.ts
+  - test/imports.e2e-spec.ts
+- What was implemented
+  - Added authenticated list/detail endpoints for notes, cards, and media, including `GET /api/v1/imports/:importId/notes`, `GET /api/v1/notes/:id`, `GET /api/v1/imports/:importId/cards`, `GET /api/v1/cards/:id`, `GET /api/v1/imports/:importId/media`, `GET /api/v1/media/:id`, and `GET /api/v1/media/:id/info`.
+  - Added pagination and filters for `deckId`, comma-separated `tags`, and `type`, plus stable ordering for incremental browsing of imported records.
+  - Documented the new contracts in Swagger with response examples on entities and explicit 404 examples for import, note, card, media metadata, and missing media binaries.
+  - Added safe media streaming that resolves files from the configured media root without exposing internal filesystem paths when the binary is missing.
+  - Expanded unit and e2e coverage for list/detail behavior, filter scenarios, streamed media responses, and the removed-media 404 path.
+- **Learnings for future iterations:**
+  - Patterns discovered
+    - Import-scoped browsing endpoints fit cleanly into the existing `ImportsService` when detail routes stay in dedicated resource controllers.
+    - Prisma `jsonb` field key order is not reliable for presentation; tests should not assume persisted object order unless the service explicitly imposes one.
+  - Gotchas encountered
+    - Ordering list endpoints by `createdAt` and UUID produces unstable pagination inside a single import; natural Anki identifiers or ordinals are safer defaults.
+    - Binary e2e assertions in Supertest need an explicit parser to preserve the raw `Buffer`.
+  - Useful context
+    - The negative media case is covered by deleting the stored file under `MEDIA_STORAGE_DIR/<importId>/...` and asserting the API still returns a standardized 404 payload without path leakage.
+---
 
 ## [2026-03-16 12:04:41 -03:00] - US-008: Expor consulta de imports e decks
 Thread: 
