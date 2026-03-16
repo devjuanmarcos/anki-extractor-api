@@ -113,10 +113,12 @@ pnpm install
 
 2. Crie o arquivo `.env` com base em `.env.example`.
 
-3. Suba o PostgreSQL local:
+3. Garanta um PostgreSQL local em `localhost:5432` com usuario `postgres`,
+senha `2611` e um banco dedicado chamado `anki_extractor_local`.
+Nao use Docker para este fluxo. Um exemplo de SQL para preparar o banco e:
 
-```bash
-pnpm db:up
+```sql
+CREATE DATABASE anki_extractor_local;
 ```
 
 4. Gere o client do Prisma:
@@ -125,9 +127,10 @@ pnpm db:up
 pnpm prisma:generate
 ```
 
-5. Aplique as migrations:
+5. Aplique as migrations usando a URL local abaixo:
 
 ```bash
+DATABASE_URL=postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public \
 pnpm prisma:migrate
 ```
 
@@ -145,11 +148,20 @@ pnpm start:dev
 
 ## Banco local
 
-- Compose local: `docker-compose.local.yml`
-- Banco: `api_template_local`
+- Banco: `anki_extractor_local`
 - Usuario: `postgres`
-- Senha: `postgres`
-- URL padrao: `postgresql://postgres:postgres@localhost:5432/api_template_local?schema=public`
+- Senha: `2611`
+- URL padrao: `postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public`
+- Fluxo esperado: PostgreSQL instalado localmente, sem comandos Docker para subir o banco
+- Comportamento de falha esperado: se o banco nao existir ou a senha estiver incorreta, `pnpm prisma:migrate` deve falhar com erro de conexao antes de aplicar estado parcial
+
+## Dominio Anki no Prisma
+
+O schema Prisma inclui as tabelas `imports`, `decks`, `note_models`, `notes`,
+`cards` e `media_files`, com enums para `ImportStatus` e `MediaType`.
+Os relacionamentos usam `onDelete: Cascade` a partir de `Import` e indices
+compostos por `importId` + ID original do Anki para apoiar o fluxo de extracao
+e deduplicacao dos dados persistidos.
 
 ## Credenciais seed
 

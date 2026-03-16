@@ -12,6 +12,19 @@ enum Role {
   MEMBER
 }
 
+enum ImportStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum MediaType {
+  IMAGE
+  AUDIO
+  VIDEO
+  OTHER
+}
+
 model User {
   id            String         @id @default(uuid())
   name          String         @db.VarChar(120)
@@ -29,33 +42,33 @@ model User {
 }
 
 model RefreshToken {
-  id         String   @id @default(uuid())
-  jti        String   @unique
-  tokenHash  String   @map("token_hash")
-  expiresAt  DateTime @map("expires_at")
+  id        String    @id @default(uuid())
+  jti       String    @unique
+  tokenHash String    @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
   revokedAt DateTime? @map("revoked_at")
-  userId     String   @map("user_id")
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
 
   @@index([userId])
   @@map("refresh_tokens")
 }
 
 model RequestLog {
-  id         String    @id @default(uuid())
-  userId     String?   @map("user_id")
-  user       User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
-  userEmail  String?   @map("user_email")
-  userName   String?   @map("user_name")
-  userRole   String?   @map("user_role")
+  id         String   @id @default(uuid())
+  userId     String?  @map("user_id")
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userEmail  String?  @map("user_email")
+  userName   String?  @map("user_name")
+  userRole   String?  @map("user_role")
   route      String
   method     String
-  statusCode Int       @map("status_code")
+  statusCode Int      @map("status_code")
   success    Boolean
   payload    Json?
-  createdAt  DateTime  @default(now()) @map("created_at")
+  createdAt  DateTime @default(now()) @map("created_at")
 
   @@index([createdAt])
   @@index([route])
@@ -76,4 +89,121 @@ model Item {
   @@index([createdById])
   @@index([createdAt])
   @@map("items")
+}
+
+model Import {
+  id            String       @id @default(uuid())
+  originalName  String       @map("original_name") @db.VarChar(255)
+  fileSize      Int          @map("file_size")
+  status        ImportStatus @default(PROCESSING)
+  failureReason String?      @map("failure_reason") @db.Text
+  decksCount    Int          @default(0) @map("decks_count")
+  notesCount    Int          @default(0) @map("notes_count")
+  cardsCount    Int          @default(0) @map("cards_count")
+  mediaCount    Int          @default(0) @map("media_count")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+  decks         Deck[]
+  noteModels    NoteModel[]
+  notes         Note[]
+  cards         Card[]
+  mediaFiles    MediaFile[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("imports")
+}
+
+model Deck {
+  id          String   @id @default(uuid())
+  ankiDeckId  String   @map("anki_deck_id") @db.VarChar(64)
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+  importId    String   @map("import_id")
+  import      Import   @relation(fields: [importId], references: [id], onDelete: Cascade)
+  cards       Card[]
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([importId, ankiDeckId])
+  @@index([importId])
+  @@index([importId, name])
+  @@map("decks")
+}
+
+model NoteModel {
+  id          String   @id @default(uuid())
+  ankiModelId String   @map("anki_model_id") @db.VarChar(64)
+  name        String   @db.VarChar(255)
+  fields      Json
+  templates   Json
+  importId    String   @map("import_id")
+  import      Import   @relation(fields: [importId], references: [id], onDelete: Cascade)
+  notes       Note[]
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([importId, ankiModelId])
+  @@index([importId])
+  @@map("note_models")
+}
+
+model Note {
+  id         String    @id @default(uuid())
+  ankiNoteId String    @map("anki_note_id") @db.VarChar(64)
+  modelId    String    @map("model_id")
+  model      NoteModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  fields     Json
+  tags       String[]  @default([])
+  importId   String    @map("import_id")
+  import     Import    @relation(fields: [importId], references: [id], onDelete: Cascade)
+  cards      Card[]
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@unique([importId, ankiNoteId])
+  @@index([importId])
+  @@index([importId, modelId])
+  @@map("notes")
+}
+
+model Card {
+  id          String   @id @default(uuid())
+  ankiCardId  String   @map("anki_card_id") @db.VarChar(64)
+  noteId      String   @map("note_id")
+  note        Note     @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  deckId      String   @map("deck_id")
+  deck        Deck     @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  ordinal     Int
+  cardType    Int      @map("card_type")
+  queue       Int
+  dueDate     Int?     @map("due_date")
+  interval    Int?     @map("interval_value")
+  easeFactor  Int?     @map("ease_factor")
+  repetitions Int      @default(0)
+  lapses      Int      @default(0)
+  importId    String   @map("import_id")
+  import      Import   @relation(fields: [importId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([importId, ankiCardId])
+  @@index([importId])
+  @@index([importId, deckId])
+  @@index([importId, noteId])
+  @@map("cards")
+}
+
+model MediaFile {
+  id           String    @id @default(uuid())
+  ankiIndex    String    @map("anki_index") @db.VarChar(32)
+  originalName String    @map("original_name") @db.VarChar(255)
+  mimeType     String    @map("mime_type") @db.VarChar(160)
+  sizeKb       Int       @map("size_kb")
+  storageUrl   String    @map("storage_url") @db.Text
+  type         MediaType
+  importId     String    @map("import_id")
+  import       Import    @relation(fields: [importId], references: [id], onDelete: Cascade)
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@unique([importId, ankiIndex])
+  @@index([importId])
+  @@index([importId, type])
+  @@map("media_files")
 }

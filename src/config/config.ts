@@ -1,7 +1,10 @@
+import { existsSync } from 'node:fs';
 import { loadEnvFile } from 'node:process';
 import { z } from 'zod';
 
-loadEnvFile();
+if (existsSync('.env')) {
+  loadEnvFile();
+}
 
 const booleanFromEnv = z.preprocess(value => {
   if (typeof value !== 'string') {

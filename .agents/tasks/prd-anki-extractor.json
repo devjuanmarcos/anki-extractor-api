@@ -247,7 +247,7 @@
     {
       "id": "US-001",
       "title": "Modelar banco local para imports do Anki",
-      "status": "in_progress",
+      "status": "done",
       "dependsOn": [],
       "description": "As a developer, I want a Prisma schema and local PostgreSQL baseline for Anki imports so that extraction results persist in the existing codebase without Docker.",
       "acceptanceCriteria": [
@@ -258,8 +258,8 @@
         "Negative case: se o banco local nao existir ou a senha estiver incorreta, a migration falha com erro de conexao acionavel e nao deixa estado parcial aplicado."
       ],
       "startedAt": "2026-03-16T03:12:50.884916+00:00",
-      "completedAt": null,
-      "updatedAt": "2026-03-16T03:12:50.884925+00:00"
+      "completedAt": "2026-03-16T03:27:19.900236+00:00",
+      "updatedAt": "2026-03-16T03:27:19.900226+00:00"
     },
     {
       "id": "US-002",

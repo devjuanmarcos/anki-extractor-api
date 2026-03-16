@@ -32,7 +32,7 @@
     "db:down": "docker compose -f docker-compose.local.yml down",
     "db:logs": "docker compose -f docker-compose.local.yml logs -f postgres",
     "db:seed": "prisma db seed",
-    "db:setup": "pnpm db:up && pnpm prisma:generate && pnpm prisma:migrate && pnpm db:seed"
+    "db:setup": "pnpm prisma:generate && pnpm prisma:migrate && pnpm db:seed"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
