@@ -5,8 +5,10 @@ import {
   Injectable,
   InternalServerErrorException,
   Logger,
+  NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { PaginationDto } from '../../common/dto/pagination.dto';
 import { PrismaService } from '../../common/services/prisma.service';
 import { config } from '../../config/config';
 import {
@@ -18,7 +20,11 @@ import {
   InvalidAnkiPackageError,
 } from './anki-package.service';
 import { CreateImportDto } from './dto/create-import.dto';
+import { DeckEntity } from './entities/deck.entity';
+import { ImportDetailsEntity } from './entities/import-details.entity';
 import { ImportEntity } from './entities/import.entity';
+import { PaginatedDecksEntity } from './entities/paginated-decks.entity';
+import { PaginatedImportsEntity } from './entities/paginated-imports.entity';
 import { createImportSchema } from './schemas/import.schema';
 
 @Injectable()
@@ -101,6 +107,108 @@ export class ImportsService {
 
       throw new InternalServerErrorException('Failed to store uploaded file.');
     }
+  }
+
+  async findAll(query: PaginationDto): Promise<PaginatedImportsEntity> {
+    const { page, limit, skip, take } = this.resolvePagination(query);
+
+    const [imports, totalItems] = await Promise.all([
+      this.prisma.import.findMany({
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip,
+        take,
+      }),
+      this.prisma.import.count(),
+    ]);
+
+    return PaginatedImportsEntity.create({
+      items: imports.map(record => ImportDetailsEntity.fromRecord(record)),
+      page,
+      limit,
+      totalItems,
+    });
+  }
+
+  async findOne(id: string): Promise<ImportDetailsEntity> {
+    const importRecord = await this.prisma.import.findUnique({
+      where: { id },
+    });
+
+    if (!importRecord) {
+      throw new NotFoundException('Import not found.');
+    }
+
+    return ImportDetailsEntity.fromRecord(importRecord);
+  }
+
+  async findImportDecks(
+    importId: string,
+    query: PaginationDto,
+  ): Promise<PaginatedDecksEntity> {
+    await this.ensureImportExists(importId);
+
+    const { page, limit, skip, take } = this.resolvePagination(query);
+
+    const [decks, totalItems] = await Promise.all([
+      this.prisma.deck.findMany({
+        where: { importId },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        skip,
+        take,
+      }),
+      this.prisma.deck.count({ where: { importId } }),
+    ]);
+
+    const deckIds = decks.map(deck => deck.id);
+    const { cardsCountByDeckId, notesCountByDeckId } =
+      await this.getDeckAggregateMaps(deckIds);
+
+    return PaginatedDecksEntity.create({
+      items: decks.map(deck =>
+        DeckEntity.fromRecord({
+          ...deck,
+          cardsCount: cardsCountByDeckId.get(deck.id) ?? 0,
+          notesCount: notesCountByDeckId.get(deck.id) ?? 0,
+        }),
+      ),
+      page,
+      limit,
+      totalItems,
+    });
+  }
+
+  async findDeck(id: string): Promise<DeckEntity> {
+    const deck = await this.prisma.deck.findUnique({
+      where: { id },
+    });
+
+    if (!deck) {
+      throw new NotFoundException('Deck not found.');
+    }
+
+    const [cardsCount, distinctNotes] = await Promise.all([
+      this.prisma.card.count({
+        where: { deckId: id },
+      }),
+      this.prisma.card.groupBy({
+        by: ['noteId'],
+        where: { deckId: id },
+      }),
+    ]);
+
+    return DeckEntity.fromRecord({
+      ...deck,
+      cardsCount,
+      notesCount: distinctNotes.length,
+    });
+  }
+
+  async remove(id: string): Promise<void> {
+    await this.ensureImportExists(id);
+    await this.removeImportArtifacts(id);
+    await this.prisma.import.delete({
+      where: { id },
+    });
   }
 
   private async validateCreateImportDto(rawDto: CreateImportDto): Promise<{
@@ -284,6 +392,8 @@ export class ImportsService {
       await transaction.import.update({
         where: { id: importId },
         data: {
+          status: 'COMPLETED',
+          failureReason: null,
           decksCount: collectionMetadata.decks.length,
           notesCount: notes.length,
           cardsCount: cards.length,
@@ -291,6 +401,81 @@ export class ImportsService {
         },
       });
     });
+  }
+
+  private async ensureImportExists(id: string): Promise<void> {
+    const importRecord = await this.prisma.import.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+
+    if (!importRecord) {
+      throw new NotFoundException('Import not found.');
+    }
+  }
+
+  private resolvePagination(query: PaginationDto): {
+    page: number;
+    limit: number;
+    skip: number;
+    take: number;
+  } {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+
+    return {
+      page,
+      limit,
+      skip: (page - 1) * limit,
+      take: limit,
+    };
+  }
+
+  private async getDeckAggregateMaps(deckIds: string[]): Promise<{
+    cardsCountByDeckId: Map<string, number>;
+    notesCountByDeckId: Map<string, number>;
+  }> {
+    if (deckIds.length === 0) {
+      return {
+        cardsCountByDeckId: new Map(),
+        notesCountByDeckId: new Map(),
+      };
+    }
+
+    const [cardsByDeck, distinctDeckNotes] = await Promise.all([
+      this.prisma.card.groupBy({
+        by: ['deckId'],
+        where: {
+          deckId: { in: deckIds },
+        },
+        _count: {
+          _all: true,
+        },
+      }),
+      this.prisma.card.groupBy({
+        by: ['deckId', 'noteId'],
+        where: {
+          deckId: { in: deckIds },
+        },
+      }),
+    ]);
+
+    const cardsCountByDeckId = new Map(
+      cardsByDeck.map(record => [record.deckId, record._count._all]),
+    );
+    const notesCountByDeckId = new Map<string, number>();
+
+    for (const record of distinctDeckNotes) {
+      notesCountByDeckId.set(
+        record.deckId,
+        (notesCountByDeckId.get(record.deckId) ?? 0) + 1,
+      );
+    }
+
+    return {
+      cardsCountByDeckId,
+      notesCountByDeckId,
+    };
   }
 
   private getWorkspacePath(importId: string): string {
@@ -323,6 +508,13 @@ export class ImportsService {
       }),
       this.safeRemovePath(this.getWorkspacePath(importId)),
       this.safeRemovePath(this.getImportMediaPath(importId)),
+    ]);
+  }
+
+  private async removeImportArtifacts(importId: string): Promise<void> {
+    await Promise.all([
+      this.removePath(this.getWorkspacePath(importId)),
+      this.removePath(this.getImportMediaPath(importId)),
     ]);
   }
 
@@ -409,6 +601,14 @@ export class ImportsService {
     }
 
     await rm(path, { recursive: true, force: true }).catch(() => undefined);
+  }
+
+  private async removePath(path?: string): Promise<void> {
+    if (!path) {
+      return;
+    }
+
+    await rm(path, { recursive: true, force: true });
   }
 }
 

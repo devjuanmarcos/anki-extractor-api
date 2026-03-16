@@ -101,7 +101,7 @@ describe('Imports API (e2e)', () => {
     expect(createdImport).toMatchObject({
       id: body.importId,
       originalName: 'english.apkg',
-      status: 'PROCESSING',
+      status: 'COMPLETED',
       fileSize: fileContents.length,
       failureReason: null,
       decksCount: 1,
@@ -273,6 +273,195 @@ describe('Imports API (e2e)', () => {
     ).toBe(true);
   });
 
+  it('lists imports and decks, returns detail payloads, and deletes an import with cleanup', async () => {
+    const fileContents = await createApkgBuffer();
+    const server = app.getHttpServer() as Parameters<typeof request>[0];
+
+    const createResponse = await request(server)
+      .post('/api/v1/imports')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .attach('file', fileContents, 'english.apkg')
+      .expect(201);
+
+    const createdImport = createResponse.body as {
+      importId: string;
+      originalName: string;
+      status: string;
+    };
+
+    const importsResponse = await request(server)
+      .get('/api/v1/imports?page=1&limit=10')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+
+    expect(importsResponse.body).toMatchObject({
+      items: [
+        {
+          importId: createdImport.importId,
+          originalName: 'english.apkg',
+          fileSize: fileContents.length,
+          status: 'COMPLETED',
+          failureReason: null,
+          decksCount: 1,
+          notesCount: 1,
+          cardsCount: 2,
+          mediaCount: 2,
+        },
+      ],
+      page: 1,
+      limit: 10,
+      totalItems: 1,
+      totalPages: 1,
+    });
+
+    const importResponse = await request(server)
+      .get(`/api/v1/imports/${createdImport.importId}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+
+    expect(importResponse.body).toMatchObject({
+      importId: createdImport.importId,
+      originalName: 'english.apkg',
+      fileSize: fileContents.length,
+      status: 'COMPLETED',
+      failureReason: null,
+      decksCount: 1,
+      notesCount: 1,
+      cardsCount: 2,
+      mediaCount: 2,
+    });
+
+    const importDecksResponse = await request(server)
+      .get(`/api/v1/imports/${createdImport.importId}/decks?page=1&limit=10`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+
+    expect(importDecksResponse.body).toMatchObject({
+      items: [
+        {
+          importId: createdImport.importId,
+          ankiDeckId: '200',
+          name: 'English::Vocabulary::Advanced',
+          description: 'Advanced deck',
+          notesCount: 1,
+          cardsCount: 2,
+        },
+      ],
+      page: 1,
+      limit: 10,
+      totalItems: 1,
+      totalPages: 1,
+    });
+
+    const deckId = (
+      importDecksResponse.body as { items: Array<{ deckId: string }> }
+    ).items[0].deckId;
+
+    const deckResponse = await request(server)
+      .get(`/api/v1/decks/${deckId}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+
+    expect(deckResponse.body).toMatchObject({
+      deckId,
+      importId: createdImport.importId,
+      ankiDeckId: '200',
+      name: 'English::Vocabulary::Advanced',
+      description: 'Advanced deck',
+      notesCount: 1,
+      cardsCount: 2,
+    });
+
+    const workspacePath = join(
+      process.env.IMPORTS_TEMP_DIR!,
+      createdImport.importId,
+    );
+    const mediaPath = join(
+      process.env.MEDIA_STORAGE_DIR!,
+      createdImport.importId,
+    );
+
+    expect(existsSync(workspacePath)).toBe(true);
+    expect(existsSync(mediaPath)).toBe(true);
+
+    await request(server)
+      .delete(`/api/v1/imports/${createdImport.importId}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(204);
+
+    await expect(
+      prisma.import.findUnique({
+        where: { id: createdImport.importId },
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      prisma.deck.count({
+        where: { importId: createdImport.importId },
+      }),
+    ).resolves.toBe(0);
+    await expect(
+      prisma.note.count({
+        where: { importId: createdImport.importId },
+      }),
+    ).resolves.toBe(0);
+    await expect(
+      prisma.card.count({
+        where: { importId: createdImport.importId },
+      }),
+    ).resolves.toBe(0);
+    await expect(
+      prisma.mediaFile.count({
+        where: { importId: createdImport.importId },
+      }),
+    ).resolves.toBe(0);
+    expect(existsSync(workspacePath)).toBe(false);
+    expect(existsSync(mediaPath)).toBe(false);
+  });
+
+  it('returns the standardized 404 payload when an import does not exist', async () => {
+    const server = app.getHttpServer() as Parameters<typeof request>[0];
+    const missingImportId = 'missing-import';
+
+    const detailResponse = await request(server)
+      .get(`/api/v1/imports/${missingImportId}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(404);
+
+    expect(detailResponse.body).toMatchObject({
+      statusCode: 404,
+      message: 'Import not found.',
+      error: 'Not Found',
+      path: `/api/v1/imports/${missingImportId}`,
+      method: 'GET',
+    });
+
+    const decksResponse = await request(server)
+      .get(`/api/v1/imports/${missingImportId}/decks`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(404);
+
+    expect(decksResponse.body).toMatchObject({
+      statusCode: 404,
+      message: 'Import not found.',
+      error: 'Not Found',
+      path: `/api/v1/imports/${missingImportId}/decks`,
+      method: 'GET',
+    });
+
+    const deleteResponse = await request(server)
+      .delete(`/api/v1/imports/${missingImportId}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(404);
+
+    expect(deleteResponse.body).toMatchObject({
+      statusCode: 404,
+      message: 'Import not found.',
+      error: 'Not Found',
+      path: `/api/v1/imports/${missingImportId}`,
+      method: 'DELETE',
+    });
+  });
+
   it('skips media mapped in the media file when the binary is missing from the package', async () => {
     const fileContents = await createApkgBuffer({
       omitMediaFileIndexes: ['1'],
@@ -305,7 +494,7 @@ describe('Imports API (e2e)', () => {
     expect(createdImport).toMatchObject({
       id: body.importId,
       originalName: 'missing-media-file.apkg',
-      status: 'PROCESSING',
+      status: 'COMPLETED',
       mediaCount: 1,
     });
     expect(persistedMediaFiles).toEqual([

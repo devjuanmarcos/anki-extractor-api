@@ -3,7 +3,13 @@ import { mkdirSync } from 'node:fs';
 import { diskStorage } from 'multer';
 import {
   Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
   Post,
+  Query,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -14,18 +20,30 @@ import {
   ApiBody,
   ApiConsumes,
   ApiCreatedResponse,
+  ApiNoContentResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
   ApiOperation,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { PaginationDto } from '../../common/dto/pagination.dto';
+import { ZodValidationPipe } from '../../common/pipes/zod.validation.pipe';
 import { config } from '../../config/config';
 import {
   createImportDtoFromUploadedFile,
   CreateImportDto,
 } from './dto/create-import.dto';
 import { UploadImportFileDto } from './dto/upload-import-file.dto';
+import { ImportDetailsEntity } from './entities/import-details.entity';
 import { ImportEntity } from './entities/import.entity';
+import { PaginatedDecksEntity } from './entities/paginated-decks.entity';
+import { PaginatedImportsEntity } from './entities/paginated-imports.entity';
 import { ImportsService } from './imports.service';
+import {
+  listImportDecksQuerySchema,
+  listImportsQuerySchema,
+} from './schemas/import-query.schema';
 
 const importUploadInterceptor = FileInterceptor('file', {
   storage: diskStorage({
@@ -84,5 +102,65 @@ export class ImportsController {
   ): Promise<ImportEntity> {
     const dto: CreateImportDto = createImportDtoFromUploadedFile(file);
     return this.importsService.create(dto);
+  }
+
+  @Get()
+  @ApiOperation({
+    summary: 'List imports with status, counts, and audit metadata.',
+  })
+  @ApiOkResponse({ type: PaginatedImportsEntity })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication is required.',
+  })
+  async findAll(
+    @Query(new ZodValidationPipe(listImportsQuerySchema))
+    query: PaginationDto,
+  ): Promise<PaginatedImportsEntity> {
+    return this.importsService.findAll(query);
+  }
+
+  @Get(':importId/decks')
+  @ApiOperation({
+    summary: 'List decks extracted for a specific import.',
+  })
+  @ApiOkResponse({ type: PaginatedDecksEntity })
+  @ApiNotFoundResponse({ description: 'Import not found.' })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication is required.',
+  })
+  async findDecks(
+    @Param('importId') importId: string,
+    @Query(new ZodValidationPipe(listImportDecksQuerySchema))
+    query: PaginationDto,
+  ): Promise<PaginatedDecksEntity> {
+    return this.importsService.findImportDecks(importId, query);
+  }
+
+  @Get(':id')
+  @ApiOperation({
+    summary: 'Get an import with status, counts, and audit metadata.',
+  })
+  @ApiOkResponse({ type: ImportDetailsEntity })
+  @ApiNotFoundResponse({ description: 'Import not found.' })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication is required.',
+  })
+  async findOne(@Param('id') id: string): Promise<ImportDetailsEntity> {
+    return this.importsService.findOne(id);
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary:
+      'Delete an import, its related records, and any locally stored media.',
+  })
+  @ApiNoContentResponse()
+  @ApiNotFoundResponse({ description: 'Import not found.' })
+  @ApiUnauthorizedResponse({
+    description: 'Authentication is required.',
+  })
+  async remove(@Param('id') id: string): Promise<void> {
+    await this.importsService.remove(id);
   }
 }

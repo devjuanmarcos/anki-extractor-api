@@ -28,6 +28,8 @@ type MockTransactionClient = {
   };
   card: {
     createMany: jest.Mock;
+    count: jest.Mock;
+    groupBy: jest.Mock;
   };
   mediaFile: {
     createMany: jest.Mock;
@@ -41,12 +43,17 @@ describe('ImportsService', () => {
     $transaction: jest.Mock;
     import: {
       create: jest.Mock;
+      count: jest.Mock;
       delete: jest.Mock;
+      findMany: jest.Mock;
+      findUnique: jest.Mock;
       update: jest.Mock;
     };
     deck: {
+      count: jest.Mock;
       createMany: jest.Mock;
       findMany: jest.Mock;
+      findUnique: jest.Mock;
     };
     noteModel: {
       createMany: jest.Mock;
@@ -58,6 +65,8 @@ describe('ImportsService', () => {
     };
     card: {
       createMany: jest.Mock;
+      count: jest.Mock;
+      groupBy: jest.Mock;
     };
     mediaFile: {
       createMany: jest.Mock;
@@ -69,12 +78,17 @@ describe('ImportsService', () => {
       $transaction: jest.fn(),
       import: {
         create: jest.fn(),
+        count: jest.fn(),
         delete: jest.fn(),
+        findMany: jest.fn(),
+        findUnique: jest.fn(),
         update: jest.fn(),
       },
       deck: {
+        count: jest.fn(),
         createMany: jest.fn(),
         findMany: jest.fn(),
+        findUnique: jest.fn(),
       },
       noteModel: {
         createMany: jest.fn(),
@@ -86,6 +100,8 @@ describe('ImportsService', () => {
       },
       card: {
         createMany: jest.fn(),
+        count: jest.fn(),
+        groupBy: jest.fn(),
       },
       mediaFile: {
         createMany: jest.fn(),
@@ -286,6 +302,8 @@ describe('ImportsService', () => {
     expect(prisma.import.update).toHaveBeenCalledWith({
       where: { id: 'import-1' },
       data: {
+        status: 'COMPLETED',
+        failureReason: null,
         decksCount: 1,
         notesCount: 1,
         cardsCount: 2,
@@ -421,6 +439,8 @@ describe('ImportsService', () => {
     expect(prisma.import.update).toHaveBeenCalledWith({
       where: { id: 'import-8' },
       data: {
+        status: 'COMPLETED',
+        failureReason: null,
         decksCount: 1,
         notesCount: 1,
         cardsCount: 2,
@@ -748,6 +768,216 @@ describe('ImportsService', () => {
     expect(existsSync(join(config.storage.importsTempDir, 'import-7'))).toBe(
       false,
     );
+  });
+
+  it('lists imports with audit metadata and pagination', async () => {
+    const createdAt = new Date('2026-03-16T12:00:00.000Z');
+    const updatedAt = new Date('2026-03-16T12:05:00.000Z');
+
+    prisma.import.findMany.mockResolvedValue([
+      {
+        id: 'import-1',
+        originalName: 'english.apkg',
+        fileSize: 1024,
+        status: 'COMPLETED',
+        failureReason: null,
+        decksCount: 1,
+        notesCount: 1,
+        cardsCount: 2,
+        mediaCount: 2,
+        createdAt,
+        updatedAt,
+      },
+    ]);
+    prisma.import.count.mockResolvedValue(1);
+
+    await expect(service.findAll({ page: 2, limit: 1 })).resolves.toEqual({
+      items: [
+        {
+          importId: 'import-1',
+          originalName: 'english.apkg',
+          fileSize: 1024,
+          status: 'COMPLETED',
+          failureReason: null,
+          decksCount: 1,
+          notesCount: 1,
+          cardsCount: 2,
+          mediaCount: 2,
+          createdAt,
+          updatedAt,
+        },
+      ],
+      page: 2,
+      limit: 1,
+      totalItems: 1,
+      totalPages: 1,
+    });
+
+    expect(prisma.import.findMany).toHaveBeenCalledWith({
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      skip: 1,
+      take: 1,
+    });
+    expect(prisma.import.count).toHaveBeenCalledWith();
+  });
+
+  it('returns import details and fails for a missing import', async () => {
+    const createdAt = new Date('2026-03-16T12:00:00.000Z');
+    const updatedAt = new Date('2026-03-16T12:05:00.000Z');
+
+    prisma.import.findUnique.mockResolvedValueOnce({
+      id: 'import-1',
+      originalName: 'english.apkg',
+      fileSize: 1024,
+      status: 'COMPLETED',
+      failureReason: null,
+      decksCount: 1,
+      notesCount: 1,
+      cardsCount: 2,
+      mediaCount: 2,
+      createdAt,
+      updatedAt,
+    });
+
+    await expect(service.findOne('import-1')).resolves.toEqual({
+      importId: 'import-1',
+      originalName: 'english.apkg',
+      fileSize: 1024,
+      status: 'COMPLETED',
+      failureReason: null,
+      decksCount: 1,
+      notesCount: 1,
+      cardsCount: 2,
+      mediaCount: 2,
+      createdAt,
+      updatedAt,
+    });
+
+    prisma.import.findUnique.mockResolvedValueOnce(null);
+
+    await expect(service.findOne('missing-import')).rejects.toThrow(
+      'Import not found.',
+    );
+  });
+
+  it('lists decks for an import with aggregate counts', async () => {
+    const createdAt = new Date('2026-03-16T12:00:00.000Z');
+
+    prisma.import.findUnique.mockResolvedValue({
+      id: 'import-1',
+    });
+    prisma.deck.findMany.mockResolvedValue([
+      {
+        id: 'deck-1',
+        importId: 'import-1',
+        ankiDeckId: '200',
+        name: 'English::Vocabulary::Advanced',
+        description: 'Advanced deck',
+        createdAt,
+      },
+    ]);
+    prisma.deck.count.mockResolvedValue(1);
+    prisma.card.groupBy
+      .mockResolvedValueOnce([
+        {
+          deckId: 'deck-1',
+          _count: { _all: 2 },
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          deckId: 'deck-1',
+          noteId: 'note-1',
+        },
+      ]);
+
+    await expect(
+      service.findImportDecks('import-1', { page: 1, limit: 20 }),
+    ).resolves.toEqual({
+      items: [
+        {
+          deckId: 'deck-1',
+          importId: 'import-1',
+          ankiDeckId: '200',
+          name: 'English::Vocabulary::Advanced',
+          description: 'Advanced deck',
+          notesCount: 1,
+          cardsCount: 2,
+          createdAt,
+        },
+      ],
+      page: 1,
+      limit: 20,
+      totalItems: 1,
+      totalPages: 1,
+    });
+
+    expect(prisma.deck.findMany).toHaveBeenCalledWith({
+      where: { importId: 'import-1' },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      skip: 0,
+      take: 20,
+    });
+    expect(prisma.deck.count).toHaveBeenCalledWith({
+      where: { importId: 'import-1' },
+    });
+  });
+
+  it('returns deck details and fails for a missing deck', async () => {
+    const createdAt = new Date('2026-03-16T12:00:00.000Z');
+
+    prisma.deck.findUnique.mockResolvedValueOnce({
+      id: 'deck-1',
+      importId: 'import-1',
+      ankiDeckId: '200',
+      name: 'English::Vocabulary::Advanced',
+      description: 'Advanced deck',
+      createdAt,
+    });
+    prisma.card.count.mockResolvedValueOnce(2);
+    prisma.card.groupBy.mockResolvedValueOnce([{ noteId: 'note-1' }]);
+
+    await expect(service.findDeck('deck-1')).resolves.toEqual({
+      deckId: 'deck-1',
+      importId: 'import-1',
+      ankiDeckId: '200',
+      name: 'English::Vocabulary::Advanced',
+      description: 'Advanced deck',
+      notesCount: 1,
+      cardsCount: 2,
+      createdAt,
+    });
+
+    prisma.deck.findUnique.mockResolvedValueOnce(null);
+
+    await expect(service.findDeck('missing-deck')).rejects.toThrow(
+      'Deck not found.',
+    );
+  });
+
+  it('deletes an import and removes stored artifacts', async () => {
+    const workspacePath = join(config.storage.importsTempDir, 'import-9');
+    const mediaPath = join(config.storage.mediaDir, 'import-9');
+
+    await mkdir(workspacePath, { recursive: true });
+    await mkdir(mediaPath, { recursive: true });
+    await writeFile(join(workspacePath, 'source.apkg'), Buffer.from('archive'));
+    await writeFile(join(mediaPath, '0-front.png'), Buffer.from('image'));
+
+    prisma.import.findUnique.mockResolvedValue({
+      id: 'import-9',
+    });
+    prisma.import.delete.mockResolvedValue({
+      id: 'import-9',
+    });
+
+    await expect(service.remove('import-9')).resolves.toBeUndefined();
+
+    expect(prisma.import.delete).toHaveBeenCalledWith({
+      where: { id: 'import-9' },
+    });
+    expect(existsSync(workspacePath)).toBe(false);
+    expect(existsSync(mediaPath)).toBe(false);
   });
 
   it('rejects invalid uploads before creating an import record', async () => {
