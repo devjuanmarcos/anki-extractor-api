@@ -1,0 +1,79 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+model User {
+  id            String         @id @default(uuid())
+  name          String         @db.VarChar(120)
+  email         String         @unique @db.VarChar(160)
+  passwordHash  String         @map("password_hash")
+  role          Role           @default(MEMBER)
+  isActive      Boolean        @default(true) @map("is_active")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+  refreshTokens RefreshToken[]
+  requestLogs   RequestLog[]
+  items         Item[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id         String   @id @default(uuid())
+  jti        String   @unique
+  tokenHash  String   @map("token_hash")
+  expiresAt  DateTime @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  userId     String   @map("user_id")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model RequestLog {
+  id         String    @id @default(uuid())
+  userId     String?   @map("user_id")
+  user       User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userEmail  String?   @map("user_email")
+  userName   String?   @map("user_name")
+  userRole   String?   @map("user_role")
+  route      String
+  method     String
+  statusCode Int       @map("status_code")
+  success    Boolean
+  payload    Json?
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@index([route])
+  @@index([userEmail])
+  @@index([userRole])
+  @@map("request_logs")
+}
+
+model Item {
+  id          String   @id @default(uuid())
+  name        String   @db.VarChar(160)
+  description String?  @db.Text
+  createdById String   @map("created_by_id")
+  createdBy   User     @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([createdById])
+  @@index([createdAt])
+  @@map("items")
+}

@@ -1,0 +1,74 @@
+# Dependencies
+node_modules
+npm-debug.log*
+
+# Production build
+dist
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+logs
+*.log
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage
+
+# Dependency directories
+node_modules/
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test files
+test
+*.spec.ts
+*.test.ts
+
+# Documentation
+README.md
+ESTRUTURA.md
+
+# Generated files
+generated
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose*
+
+# Build artifacts that will be regenerated
+dist
+.tsbuildinfo
