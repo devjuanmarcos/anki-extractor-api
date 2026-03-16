@@ -440,7 +440,7 @@
     {
       "id": "US-011",
       "title": "Concluir tratamento de erros, limpeza e verificacao",
-      "status": "in_progress",
+      "status": "done",
       "dependsOn": [
         "US-002",
         "US-003",
@@ -458,8 +458,8 @@
         "Negative case: um .apkg corrompido marca o import como FAILED, retorna erro normalizado e nao deixa lixo no diretorio temporario."
       ],
       "startedAt": "2026-03-16T15:51:42.897375+00:00",
-      "completedAt": null,
-      "updatedAt": "2026-03-16T15:58:33.362554+00:00"
+      "completedAt": "2026-03-16T16:12:11.081121+00:00",
+      "updatedAt": "2026-03-16T16:12:11.081106+00:00"
     }
   ]
 }

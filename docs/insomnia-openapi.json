@@ -1,0 +1,2953 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/api": {
+      "get": {
+        "operationId": "AppController_getMetadata",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Return template metadata and useful links.",
+        "tags": [
+          "Application"
+        ]
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "operationId": "HealthController_status_v1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthEntity"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Basic liveness check with database status.",
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/api/v1/auth/register": {
+      "post": {
+        "operationId": "AuthController_register_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The first registered user becomes ADMIN automatically. All subsequent users become MEMBER.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthTokensEntity"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Register a new user and immediately create a session.",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "operationId": "AuthController_login_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthTokensEntity"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid credentials."
+          }
+        },
+        "summary": "Authenticate with email and password.",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/refresh": {
+      "post": {
+        "operationId": "AuthController_refresh_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshTokenDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthTokensEntity"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked refresh token."
+          }
+        },
+        "summary": "Exchange a valid refresh token for a new session.",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "operationId": "AuthController_logout_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshTokenDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationMessageEntity"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Revoke a refresh token and finish the session.",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "operationId": "AuthController_me_v1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserEntity"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Return the authenticated user.",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/users": {
+      "post": {
+        "operationId": "UsersController_create_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserEntity"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a new user from an authenticated admin session.",
+        "tags": [
+          "Users"
+        ]
+      },
+      "get": {
+        "operationId": "UsersController_findAll_v1",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "role",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ADMIN",
+                "MEMBER"
+              ]
+            }
+          },
+          {
+            "name": "isActive",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedUsersEntity"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List users with search and pagination.",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/api/v1/users/me": {
+      "get": {
+        "operationId": "UsersController_me_v1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserEntity"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Return the authenticated user profile.",
+        "tags": [
+          "Users"
+        ]
+      },
+      "patch": {
+        "operationId": "UsersController_updateMe_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProfileDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserEntity"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update the authenticated user profile.",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/api/v1/users/{id}": {
+      "get": {
+        "operationId": "UsersController_findOne_v1",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserEntity"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get a user by id.",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/api/v1/users/{id}/role": {
+      "patch": {
+        "operationId": "UsersController_updateRole_v1",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserRoleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserEntity"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update a user role.",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/api/v1/users/{id}/status": {
+      "patch": {
+        "operationId": "UsersController_updateStatus_v1",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserStatusDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserEntity"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Activate or deactivate a user.",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/api/v1/items": {
+      "post": {
+        "operationId": "ItemsController_create_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateItemDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemEntity"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a new item.",
+        "tags": [
+          "Items"
+        ]
+      },
+      "get": {
+        "operationId": "ItemsController_findAll_v1",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": 1,
+              "example": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": 20,
+              "example": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "example": "item name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedItemsEntity"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List items with search and pagination.",
+        "tags": [
+          "Items"
+        ]
+      }
+    },
+    "/api/v1/items/{id}": {
+      "get": {
+        "operationId": "ItemsController_findOne_v1",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemEntity"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get an item by id.",
+        "tags": [
+          "Items"
+        ]
+      },
+      "patch": {
+        "operationId": "ItemsController_update_v1",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateItemDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemEntity"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update an item.",
+        "tags": [
+          "Items"
+        ]
+      },
+      "delete": {
+        "operationId": "ItemsController_remove_v1",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete an item.",
+        "tags": [
+          "Items"
+        ]
+      }
+    },
+    "/api/v1/imports": {
+      "post": {
+        "operationId": "ImportsController_create_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "description": "Send a single authenticated multipart/form-data request with the Anki package in the `file` field.",
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadImportFileDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Import created with PROCESSING status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportEntity"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "File is required, cannot be empty, and must use the .apkg extension."
+          },
+          "401": {
+            "description": "Authentication is required."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Upload a .apkg package and create an import in processing state.",
+        "tags": [
+          "Imports"
+        ]
+      },
+      "get": {
+        "operationId": "ImportsController_findAll_v1",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "Current page number.",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "example": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Number of items returned per page.",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "example": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedImportsEntity"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List imports with status, counts, and audit metadata.",
+        "tags": [
+          "Imports"
+        ]
+      }
+    },
+    "/api/v1/imports/{importId}/decks": {
+      "get": {
+        "operationId": "ImportsController_findDecks_v1",
+        "parameters": [
+          {
+            "name": "importId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "Current page number.",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "example": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Number of items returned per page.",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "example": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedDecksEntity"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required."
+          },
+          "404": {
+            "description": "Import not found."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List decks extracted for a specific import.",
+        "tags": [
+          "Imports"
+        ]
+      }
+    },
+    "/api/v1/imports/{importId}/notes": {
+      "get": {
+        "operationId": "ImportsController_findNotes_v1",
+        "parameters": [
+          {
+            "name": "importId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "Current page number.",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "example": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Number of items returned per page.",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "example": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "deckId",
+            "required": false,
+            "in": "query",
+            "description": "Filter notes by an internal deck UUID.",
+            "schema": {
+              "example": "49768756-6369-4f37-a4dc-c427f2c91381",
+              "type": "string"
+            }
+          },
+          {
+            "name": "tags",
+            "required": false,
+            "in": "query",
+            "description": "Comma-separated tags. Returned notes must include all tags.",
+            "schema": {
+              "example": "anki,imported",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedNotesEntity"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required."
+          },
+          "404": {
+            "description": "Import not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "example": {
+                    "statusCode": 404,
+                    "timestamp": "2026-03-16T15:30:00.000Z",
+                    "message": "Import not found.",
+                    "error": "Not Found",
+                    "path": "/api/v1/imports/d5cc7d43-1483-4e4a-a520-77dfc4cbe010/notes",
+                    "method": "GET"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List notes extracted for a specific import.",
+        "tags": [
+          "Imports"
+        ]
+      }
+    },
+    "/api/v1/imports/{importId}/cards": {
+      "get": {
+        "operationId": "ImportsController_findCards_v1",
+        "parameters": [
+          {
+            "name": "importId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "Current page number.",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "example": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Number of items returned per page.",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "example": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "deckId",
+            "required": false,
+            "in": "query",
+            "description": "Filter cards by an internal deck UUID.",
+            "schema": {
+              "example": "49768756-6369-4f37-a14d-18d7af92b48c",
+              "type": "string"
+            }
+          },
+          {
+            "name": "tags",
+            "required": false,
+            "in": "query",
+            "description": "Comma-separated note tags. Returned cards must belong to notes that include all tags.",
+            "schema": {
+              "example": "anki,imported",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedCardsEntity"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required."
+          },
+          "404": {
+            "description": "Import not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "example": {
+                    "statusCode": 404,
+                    "timestamp": "2026-03-16T15:30:00.000Z",
+                    "message": "Import not found.",
+                    "error": "Not Found",
+                    "path": "/api/v1/imports/d5cc7d43-1483-4e4a-a520-77dfc4cbe010/cards",
+                    "method": "GET"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List cards extracted for a specific import, including note summaries.",
+        "tags": [
+          "Imports"
+        ]
+      }
+    },
+    "/api/v1/imports/{importId}/media": {
+      "get": {
+        "operationId": "ImportsController_findMedia_v1",
+        "parameters": [
+          {
+            "name": "importId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "Current page number.",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "example": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Number of items returned per page.",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "example": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "type",
+            "required": false,
+            "in": "query",
+            "description": "Filter media files by detected media type.",
+            "schema": {
+              "$ref": "#/components/schemas/MediaType"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedMediaEntity"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required."
+          },
+          "404": {
+            "description": "Import not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "example": {
+                    "statusCode": 404,
+                    "timestamp": "2026-03-16T15:30:00.000Z",
+                    "message": "Import not found.",
+                    "error": "Not Found",
+                    "path": "/api/v1/imports/d5cc7d43-1483-4e4a-a520-77dfc4cbe010/media",
+                    "method": "GET"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List extracted media for a specific import.",
+        "tags": [
+          "Imports"
+        ]
+      }
+    },
+    "/api/v1/imports/{importId}/export": {
+      "get": {
+        "operationId": "ImportsController_export_v1",
+        "parameters": [
+          {
+            "name": "importId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportExportEntity"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required."
+          },
+          "404": {
+            "description": "Import not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "example": {
+                    "statusCode": 404,
+                    "timestamp": "2026-03-16T15:30:00.000Z",
+                    "message": "Import not found.",
+                    "error": "Not Found",
+                    "path": "/api/v1/imports/d5cc7d43-1483-4e4a-a520-77dfc4cbe010/export",
+                    "method": "GET"
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Export is only available after processing completes successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "example": {
+                    "statusCode": 409,
+                    "timestamp": "2026-03-16T15:30:00.000Z",
+                    "message": "Import export is only available for COMPLETED imports. Current status: PROCESSING.",
+                    "error": "Conflict",
+                    "path": "/api/v1/imports/d5cc7d43-1483-4e4a-a520-77dfc4cbe010/export",
+                    "method": "GET"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Export a completed import as structured JSON with decks, notes, cards, and media.",
+        "tags": [
+          "Imports"
+        ]
+      }
+    },
+    "/api/v1/imports/{id}": {
+      "get": {
+        "operationId": "ImportsController_findOne_v1",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportDetailsEntity"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required."
+          },
+          "404": {
+            "description": "Import not found."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get an import with status, counts, and audit metadata.",
+        "tags": [
+          "Imports"
+        ]
+      },
+      "delete": {
+        "operationId": "ImportsController_remove_v1",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "401": {
+            "description": "Authentication is required."
+          },
+          "404": {
+            "description": "Import not found."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete an import, its related records, and any locally stored media.",
+        "tags": [
+          "Imports"
+        ]
+      }
+    },
+    "/api/v1/decks/{id}": {
+      "get": {
+        "operationId": "DecksController_findOne_v1",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeckEntity"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required."
+          },
+          "404": {
+            "description": "Deck not found."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get a deck summary with aggregate note and card counts.",
+        "tags": [
+          "Decks"
+        ]
+      }
+    },
+    "/api/v1/notes/{id}": {
+      "get": {
+        "operationId": "NotesController_findOne_v1",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteEntity"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required."
+          },
+          "404": {
+            "description": "Note not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "example": {
+                    "statusCode": 404,
+                    "timestamp": "2026-03-16T15:30:00.000Z",
+                    "message": "Note not found.",
+                    "error": "Not Found",
+                    "path": "/api/v1/notes/2c7e3383-e8f0-4778-a558-e4da8087b806",
+                    "method": "GET"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get a note with named fields, tags, and related cards.",
+        "tags": [
+          "Notes"
+        ]
+      }
+    },
+    "/api/v1/cards/{id}": {
+      "get": {
+        "operationId": "CardsController_findOne_v1",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CardEntity"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required."
+          },
+          "404": {
+            "description": "Card not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "example": {
+                    "statusCode": 404,
+                    "timestamp": "2026-03-16T15:30:00.000Z",
+                    "message": "Card not found.",
+                    "error": "Not Found",
+                    "path": "/api/v1/cards/8f8e62c1-baf2-4f37-a14d-18d7af92b48c",
+                    "method": "GET"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get a card with deck, note, and review metadata.",
+        "tags": [
+          "Cards"
+        ]
+      }
+    },
+    "/api/v1/media/{id}/info": {
+      "get": {
+        "operationId": "MediaController_findInfo_v1",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaInfoEntity"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required."
+          },
+          "404": {
+            "description": "Media not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "example": {
+                    "statusCode": 404,
+                    "timestamp": "2026-03-16T15:30:00.000Z",
+                    "message": "Media not found.",
+                    "error": "Not Found",
+                    "path": "/api/v1/media/1ebeb9d3-9225-4fc6-8dcf-ef8bc0709f85/info",
+                    "method": "GET"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get metadata for an extracted media file without streaming it.",
+        "tags": [
+          "Media"
+        ]
+      }
+    },
+    "/api/v1/media/{id}": {
+      "get": {
+        "operationId": "MediaController_findOne_v1",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Binary media stream."
+          },
+          "401": {
+            "description": "Authentication is required."
+          },
+          "404": {
+            "description": "Media file not found.",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "example": {
+                    "statusCode": 404,
+                    "timestamp": "2026-03-16T15:30:00.000Z",
+                    "message": "Media file not found.",
+                    "error": "Not Found",
+                    "path": "/api/v1/media/1ebeb9d3-9225-4fc6-8dcf-ef8bc0709f85",
+                    "method": "GET"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Stream a stored media file if its binary is still available.",
+        "tags": [
+          "Media"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "NestJS Prisma API Template",
+    "description": "Template API with NestJS, Prisma, TypeScript, JWT auth and OpenAPI documentation.",
+    "version": "v1",
+    "contact": {}
+  },
+  "tags": [],
+  "servers": [
+    {
+      "url": "http://localhost:3333",
+      "description": "Local development"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http",
+        "description": "Use the access token returned by the authentication endpoints."
+      }
+    },
+    "schemas": {
+      "HealthEntity": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "example": "ok"
+          },
+          "environment": {
+            "type": "string",
+            "example": "development"
+          },
+          "database": {
+            "type": "string",
+            "example": "up"
+          },
+          "uptimeInSeconds": {
+            "type": "number",
+            "example": 12.45
+          },
+          "timestamp": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "environment",
+          "database",
+          "uptimeInSeconds",
+          "timestamp"
+        ]
+      },
+      "RegisterDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Template Admin"
+          },
+          "email": {
+            "type": "string",
+            "example": "admin@example.com"
+          },
+          "password": {
+            "type": "string",
+            "example": "Str0ngPassw0rd!",
+            "description": "At least 8 characters, with uppercase, lowercase, number and special character."
+          }
+        },
+        "required": [
+          "name",
+          "email",
+          "password"
+        ]
+      },
+      "UserEntity": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "ADMIN",
+              "MEMBER"
+            ]
+          },
+          "isActive": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "email",
+          "role",
+          "isActive",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "AuthTokensEntity": {
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string"
+          },
+          "access_token": {
+            "type": "string"
+          },
+          "refreshToken": {
+            "type": "string"
+          },
+          "refresh_token": {
+            "type": "string"
+          },
+          "tokenType": {
+            "type": "string",
+            "example": "Bearer"
+          },
+          "accessTokenExpiresIn": {
+            "type": "string",
+            "example": "15m"
+          },
+          "refreshTokenExpiresIn": {
+            "type": "string",
+            "example": "7d"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserEntity"
+          }
+        },
+        "required": [
+          "accessToken",
+          "access_token",
+          "refreshToken",
+          "refresh_token",
+          "tokenType",
+          "accessTokenExpiresIn",
+          "refreshTokenExpiresIn",
+          "user"
+        ]
+      },
+      "LoginDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "admin@example.com"
+          },
+          "password": {
+            "type": "string",
+            "example": "Str0ngPassw0rd!"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ]
+      },
+      "RefreshTokenDto": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "refreshToken"
+        ]
+      },
+      "OperationMessageEntity": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "example": "Operation completed successfully."
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "CreateUserDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Template User"
+          },
+          "email": {
+            "type": "string",
+            "example": "user@example.com"
+          },
+          "password": {
+            "type": "string",
+            "example": "Str0ngPassw0rd!",
+            "description": "At least 8 characters, with uppercase, lowercase, number and special character."
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "ADMIN",
+              "MEMBER"
+            ],
+            "default": "MEMBER"
+          },
+          "isActive": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "name",
+          "email",
+          "password"
+        ]
+      },
+      "PaginatedUsersEntity": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UserEntity"
+            }
+          },
+          "page": {
+            "type": "number",
+            "example": 1
+          },
+          "limit": {
+            "type": "number",
+            "example": 20
+          },
+          "totalItems": {
+            "type": "number",
+            "example": 5
+          },
+          "totalPages": {
+            "type": "number",
+            "example": 1
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "limit",
+          "totalItems",
+          "totalPages"
+        ]
+      },
+      "UpdateProfileDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Updated User Name"
+          },
+          "email": {
+            "type": "string",
+            "example": "updated@example.com"
+          },
+          "password": {
+            "type": "string",
+            "example": "An0therStrongPass!",
+            "description": "At least 8 characters, with uppercase, lowercase, number and special character."
+          }
+        }
+      },
+      "UpdateUserRoleDto": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "ADMIN",
+              "MEMBER"
+            ],
+            "example": "ADMIN"
+          }
+        },
+        "required": [
+          "role"
+        ]
+      },
+      "UpdateUserStatusDto": {
+        "type": "object",
+        "properties": {
+          "isActive": {
+            "type": "boolean",
+            "example": true
+          }
+        },
+        "required": [
+          "isActive"
+        ]
+      },
+      "CreateItemDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "My first item"
+          },
+          "description": {
+            "type": "string",
+            "example": "A brief description of this item."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "ItemEntity": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "object",
+            "nullable": true
+          },
+          "createdById": {
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "createdById",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "PaginatedItemsEntity": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ItemEntity"
+            }
+          },
+          "page": {
+            "type": "number",
+            "example": 1
+          },
+          "limit": {
+            "type": "number",
+            "example": 20
+          },
+          "totalItems": {
+            "type": "number",
+            "example": 5
+          },
+          "totalPages": {
+            "type": "number",
+            "example": 1
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "limit",
+          "totalItems",
+          "totalPages"
+        ]
+      },
+      "UpdateItemDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Updated name"
+          },
+          "description": {
+            "type": "string",
+            "example": "Updated description."
+          }
+        }
+      },
+      "UploadImportFileDto": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary",
+            "description": "An Anki package file with the .apkg extension."
+          }
+        },
+        "required": [
+          "file"
+        ]
+      },
+      "ImportStatus": {
+        "type": "string",
+        "enum": [
+          "PROCESSING",
+          "COMPLETED",
+          "FAILED"
+        ]
+      },
+      "ImportEntity": {
+        "type": "object",
+        "properties": {
+          "importId": {
+            "type": "string",
+            "example": "d5cc7d43-1483-4e4a-a520-77dfc4cbe010"
+          },
+          "originalName": {
+            "type": "string",
+            "example": "english.apkg"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ImportStatus"
+              }
+            ]
+          }
+        },
+        "required": [
+          "importId",
+          "originalName",
+          "status"
+        ]
+      },
+      "ImportDetailsEntity": {
+        "type": "object",
+        "properties": {
+          "importId": {
+            "type": "string",
+            "example": "d5cc7d43-1483-4e4a-a520-77dfc4cbe010"
+          },
+          "originalName": {
+            "type": "string",
+            "example": "english.apkg"
+          },
+          "fileSize": {
+            "type": "number",
+            "example": 1024
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ImportStatus"
+              }
+            ]
+          },
+          "failureReason": {
+            "type": "object",
+            "nullable": true,
+            "example": "The .apkg package does not contain collection.anki2 or collection.anki21."
+          },
+          "decksCount": {
+            "type": "number",
+            "example": 1
+          },
+          "notesCount": {
+            "type": "number",
+            "example": 10
+          },
+          "cardsCount": {
+            "type": "number",
+            "example": 20
+          },
+          "mediaCount": {
+            "type": "number",
+            "example": 3
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "importId",
+          "originalName",
+          "fileSize",
+          "status",
+          "decksCount",
+          "notesCount",
+          "cardsCount",
+          "mediaCount",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "PaginatedImportsEntity": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ImportDetailsEntity"
+            }
+          },
+          "page": {
+            "type": "number",
+            "example": 1
+          },
+          "limit": {
+            "type": "number",
+            "example": 20
+          },
+          "totalItems": {
+            "type": "number",
+            "example": 5
+          },
+          "totalPages": {
+            "type": "number",
+            "example": 1
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "limit",
+          "totalItems",
+          "totalPages"
+        ]
+      },
+      "DeckEntity": {
+        "type": "object",
+        "properties": {
+          "deckId": {
+            "type": "string",
+            "example": "49768756-6369-4f37-a4dc-c427f2c91381"
+          },
+          "importId": {
+            "type": "string",
+            "example": "d5cc7d43-1483-4e4a-a520-77dfc4cbe010"
+          },
+          "ankiDeckId": {
+            "type": "string",
+            "example": "200"
+          },
+          "name": {
+            "type": "string",
+            "example": "English::Vocabulary::Advanced"
+          },
+          "description": {
+            "type": "object",
+            "nullable": true,
+            "example": "Advanced deck"
+          },
+          "notesCount": {
+            "type": "number",
+            "example": 1
+          },
+          "cardsCount": {
+            "type": "number",
+            "example": 2
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "deckId",
+          "importId",
+          "ankiDeckId",
+          "name",
+          "notesCount",
+          "cardsCount",
+          "createdAt"
+        ]
+      },
+      "PaginatedDecksEntity": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeckEntity"
+            }
+          },
+          "page": {
+            "type": "number",
+            "example": 1
+          },
+          "limit": {
+            "type": "number",
+            "example": 20
+          },
+          "totalItems": {
+            "type": "number",
+            "example": 5
+          },
+          "totalPages": {
+            "type": "number",
+            "example": 1
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "limit",
+          "totalItems",
+          "totalPages"
+        ]
+      },
+      "NoteModelSummaryEntity": {
+        "type": "object",
+        "properties": {
+          "modelId": {
+            "type": "string",
+            "example": "b13f5d1b-b03d-4fcb-82ff-dcb2e1b34db1"
+          },
+          "ankiModelId": {
+            "type": "string",
+            "example": "20"
+          },
+          "name": {
+            "type": "string",
+            "example": "Basic (and reversed card)"
+          }
+        },
+        "required": [
+          "modelId",
+          "ankiModelId",
+          "name"
+        ]
+      },
+      "NoteFieldPreviewEntity": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Front"
+          },
+          "valuePreview": {
+            "type": "string",
+            "example": "Front text <img src=\"front.png\">"
+          },
+          "mediaReferencesCount": {
+            "type": "number",
+            "example": 1
+          }
+        },
+        "required": [
+          "name",
+          "valuePreview",
+          "mediaReferencesCount"
+        ]
+      },
+      "NoteSummaryEntity": {
+        "type": "object",
+        "properties": {
+          "noteId": {
+            "type": "string",
+            "example": "2c7e3383-e8f0-4778-a558-e4da8087b806"
+          },
+          "importId": {
+            "type": "string",
+            "example": "d5cc7d43-1483-4e4a-a520-77dfc4cbe010"
+          },
+          "ankiNoteId": {
+            "type": "string",
+            "example": "1"
+          },
+          "model": {
+            "$ref": "#/components/schemas/NoteModelSummaryEntity"
+          },
+          "tags": {
+            "example": [
+              "anki",
+              "imported"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "fieldPreviews": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NoteFieldPreviewEntity"
+            }
+          },
+          "cardsCount": {
+            "type": "number",
+            "example": 2
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "noteId",
+          "importId",
+          "ankiNoteId",
+          "model",
+          "tags",
+          "fieldPreviews",
+          "cardsCount",
+          "createdAt"
+        ]
+      },
+      "PaginatedNotesEntity": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NoteSummaryEntity"
+            }
+          },
+          "page": {
+            "type": "number",
+            "example": 1
+          },
+          "limit": {
+            "type": "number",
+            "example": 20
+          },
+          "totalItems": {
+            "type": "number",
+            "example": 5
+          },
+          "totalPages": {
+            "type": "number",
+            "example": 1
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "limit",
+          "totalItems",
+          "totalPages"
+        ]
+      },
+      "DeckSummaryEntity": {
+        "type": "object",
+        "properties": {
+          "deckId": {
+            "type": "string",
+            "example": "49768756-6369-4f37-a4dc-c427f2c91381"
+          },
+          "ankiDeckId": {
+            "type": "string",
+            "example": "200"
+          },
+          "name": {
+            "type": "string",
+            "example": "English::Vocabulary::Advanced"
+          }
+        },
+        "required": [
+          "deckId",
+          "ankiDeckId",
+          "name"
+        ]
+      },
+      "CardNoteSummaryEntity": {
+        "type": "object",
+        "properties": {
+          "noteId": {
+            "type": "string",
+            "example": "2c7e3383-e8f0-4778-a558-e4da8087b806"
+          },
+          "ankiNoteId": {
+            "type": "string",
+            "example": "1"
+          },
+          "model": {
+            "$ref": "#/components/schemas/NoteModelSummaryEntity"
+          },
+          "tags": {
+            "example": [
+              "anki",
+              "imported"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "fieldPreviews": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NoteFieldPreviewEntity"
+            }
+          }
+        },
+        "required": [
+          "noteId",
+          "ankiNoteId",
+          "model",
+          "tags",
+          "fieldPreviews"
+        ]
+      },
+      "CardSummaryEntity": {
+        "type": "object",
+        "properties": {
+          "cardId": {
+            "type": "string",
+            "example": "8f8e62c1-baf2-4f37-a14d-18d7af92b48c"
+          },
+          "importId": {
+            "type": "string",
+            "example": "d5cc7d43-1483-4e4a-a520-77dfc4cbe010"
+          },
+          "ankiCardId": {
+            "type": "string",
+            "example": "10"
+          },
+          "ordinal": {
+            "type": "number",
+            "example": 0
+          },
+          "cardType": {
+            "type": "number",
+            "example": 0
+          },
+          "queue": {
+            "type": "number",
+            "example": 0
+          },
+          "dueDate": {
+            "type": "object",
+            "example": 42,
+            "nullable": true
+          },
+          "interval": {
+            "type": "object",
+            "example": 7,
+            "nullable": true
+          },
+          "easeFactor": {
+            "type": "object",
+            "example": 2500,
+            "nullable": true
+          },
+          "repetitions": {
+            "type": "number",
+            "example": 3
+          },
+          "lapses": {
+            "type": "number",
+            "example": 1
+          },
+          "deck": {
+            "$ref": "#/components/schemas/DeckSummaryEntity"
+          },
+          "note": {
+            "$ref": "#/components/schemas/CardNoteSummaryEntity"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cardId",
+          "importId",
+          "ankiCardId",
+          "ordinal",
+          "cardType",
+          "queue",
+          "dueDate",
+          "interval",
+          "easeFactor",
+          "repetitions",
+          "lapses",
+          "deck",
+          "note",
+          "createdAt"
+        ]
+      },
+      "PaginatedCardsEntity": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CardSummaryEntity"
+            }
+          },
+          "page": {
+            "type": "number",
+            "example": 1
+          },
+          "limit": {
+            "type": "number",
+            "example": 20
+          },
+          "totalItems": {
+            "type": "number",
+            "example": 5
+          },
+          "totalPages": {
+            "type": "number",
+            "example": 1
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "limit",
+          "totalItems",
+          "totalPages"
+        ]
+      },
+      "MediaType": {
+        "type": "string",
+        "enum": [
+          "IMAGE",
+          "AUDIO",
+          "VIDEO",
+          "OTHER"
+        ]
+      },
+      "MediaEntity": {
+        "type": "object",
+        "properties": {
+          "mediaId": {
+            "type": "string",
+            "example": "1ebeb9d3-9225-4fc6-8dcf-ef8bc0709f85"
+          },
+          "importId": {
+            "type": "string",
+            "example": "d5cc7d43-1483-4e4a-a520-77dfc4cbe010"
+          },
+          "ankiIndex": {
+            "type": "string",
+            "example": "0"
+          },
+          "originalName": {
+            "type": "string",
+            "example": "front.png"
+          },
+          "mimeType": {
+            "type": "string",
+            "example": "image/png"
+          },
+          "sizeKb": {
+            "type": "number",
+            "example": 1
+          },
+          "type": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MediaType"
+              }
+            ]
+          },
+          "downloadUrl": {
+            "type": "string",
+            "example": "/api/v1/media/1ebeb9d3-9225-4fc6-8dcf-ef8bc0709f85"
+          },
+          "infoUrl": {
+            "type": "string",
+            "example": "/api/v1/media/1ebeb9d3-9225-4fc6-8dcf-ef8bc0709f85/info"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mediaId",
+          "importId",
+          "ankiIndex",
+          "originalName",
+          "mimeType",
+          "sizeKb",
+          "type",
+          "downloadUrl",
+          "infoUrl",
+          "createdAt"
+        ]
+      },
+      "PaginatedMediaEntity": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MediaEntity"
+            }
+          },
+          "page": {
+            "type": "number",
+            "example": 1
+          },
+          "limit": {
+            "type": "number",
+            "example": 20
+          },
+          "totalItems": {
+            "type": "number",
+            "example": 5
+          },
+          "totalPages": {
+            "type": "number",
+            "example": 1
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "limit",
+          "totalItems",
+          "totalPages"
+        ]
+      },
+      "NoteCardSummaryEntity": {
+        "type": "object",
+        "properties": {
+          "cardId": {
+            "type": "string",
+            "example": "8f8e62c1-baf2-4f37-a14d-18d7af92b48c"
+          },
+          "ankiCardId": {
+            "type": "string",
+            "example": "10"
+          },
+          "ordinal": {
+            "type": "number",
+            "example": 0
+          },
+          "cardType": {
+            "type": "number",
+            "example": 0
+          },
+          "queue": {
+            "type": "number",
+            "example": 0
+          },
+          "deck": {
+            "$ref": "#/components/schemas/DeckSummaryEntity"
+          }
+        },
+        "required": [
+          "cardId",
+          "ankiCardId",
+          "ordinal",
+          "cardType",
+          "queue",
+          "deck"
+        ]
+      },
+      "NoteEntity": {
+        "type": "object",
+        "properties": {
+          "noteId": {
+            "type": "string",
+            "example": "2c7e3383-e8f0-4778-a558-e4da8087b806"
+          },
+          "importId": {
+            "type": "string",
+            "example": "d5cc7d43-1483-4e4a-a520-77dfc4cbe010"
+          },
+          "ankiNoteId": {
+            "type": "string",
+            "example": "1"
+          },
+          "model": {
+            "$ref": "#/components/schemas/NoteModelSummaryEntity"
+          },
+          "tags": {
+            "example": [
+              "anki",
+              "imported"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "fields": {
+            "type": "object",
+            "example": {
+              "Front": {
+                "value": "Front text <img src=\"front.png\">",
+                "mediaReferences": [
+                  {
+                    "type": "IMAGE",
+                    "reference": "front.png"
+                  }
+                ]
+              },
+              "Back": {
+                "value": "Back text with <b>HTML</b>",
+                "mediaReferences": []
+              }
+            }
+          },
+          "cards": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NoteCardSummaryEntity"
+            }
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "noteId",
+          "importId",
+          "ankiNoteId",
+          "model",
+          "tags",
+          "fields",
+          "cards",
+          "createdAt"
+        ]
+      },
+      "ImportExportEntity": {
+        "type": "object",
+        "properties": {
+          "import": {
+            "$ref": "#/components/schemas/ImportDetailsEntity"
+          },
+          "decks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeckEntity"
+            }
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NoteEntity"
+            }
+          },
+          "cards": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CardSummaryEntity"
+            }
+          },
+          "media": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MediaEntity"
+            }
+          }
+        },
+        "required": [
+          "import",
+          "decks",
+          "notes",
+          "cards",
+          "media"
+        ]
+      },
+      "CardNoteDetailEntity": {
+        "type": "object",
+        "properties": {
+          "noteId": {
+            "type": "string",
+            "example": "2c7e3383-e8f0-4778-a558-e4da8087b806"
+          },
+          "ankiNoteId": {
+            "type": "string",
+            "example": "1"
+          },
+          "model": {
+            "$ref": "#/components/schemas/NoteModelSummaryEntity"
+          },
+          "tags": {
+            "example": [
+              "anki",
+              "imported"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "fields": {
+            "type": "object",
+            "example": {
+              "Front": {
+                "value": "Front text <img src=\"front.png\">",
+                "mediaReferences": [
+                  {
+                    "type": "IMAGE",
+                    "reference": "front.png"
+                  }
+                ]
+              },
+              "Back": {
+                "value": "Back text with <b>HTML</b>",
+                "mediaReferences": []
+              }
+            }
+          }
+        },
+        "required": [
+          "noteId",
+          "ankiNoteId",
+          "model",
+          "tags",
+          "fields"
+        ]
+      },
+      "CardEntity": {
+        "type": "object",
+        "properties": {
+          "cardId": {
+            "type": "string",
+            "example": "8f8e62c1-baf2-4f37-a14d-18d7af92b48c"
+          },
+          "importId": {
+            "type": "string",
+            "example": "d5cc7d43-1483-4e4a-a520-77dfc4cbe010"
+          },
+          "ankiCardId": {
+            "type": "string",
+            "example": "10"
+          },
+          "ordinal": {
+            "type": "number",
+            "example": 0
+          },
+          "cardType": {
+            "type": "number",
+            "example": 0
+          },
+          "queue": {
+            "type": "number",
+            "example": 0
+          },
+          "dueDate": {
+            "type": "object",
+            "example": 42,
+            "nullable": true
+          },
+          "interval": {
+            "type": "object",
+            "example": 7,
+            "nullable": true
+          },
+          "easeFactor": {
+            "type": "object",
+            "example": 2500,
+            "nullable": true
+          },
+          "repetitions": {
+            "type": "number",
+            "example": 3
+          },
+          "lapses": {
+            "type": "number",
+            "example": 1
+          },
+          "deck": {
+            "$ref": "#/components/schemas/DeckSummaryEntity"
+          },
+          "note": {
+            "$ref": "#/components/schemas/CardNoteDetailEntity"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cardId",
+          "importId",
+          "ankiCardId",
+          "ordinal",
+          "cardType",
+          "queue",
+          "dueDate",
+          "interval",
+          "easeFactor",
+          "repetitions",
+          "lapses",
+          "deck",
+          "note",
+          "createdAt"
+        ]
+      },
+      "MediaInfoEntity": {
+        "type": "object",
+        "properties": {
+          "mediaId": {
+            "type": "string",
+            "example": "1ebeb9d3-9225-4fc6-8dcf-ef8bc0709f85"
+          },
+          "importId": {
+            "type": "string",
+            "example": "d5cc7d43-1483-4e4a-a520-77dfc4cbe010"
+          },
+          "ankiIndex": {
+            "type": "string",
+            "example": "0"
+          },
+          "originalName": {
+            "type": "string",
+            "example": "front.png"
+          },
+          "mimeType": {
+            "type": "string",
+            "example": "image/png"
+          },
+          "sizeKb": {
+            "type": "number",
+            "example": 1
+          },
+          "type": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MediaType"
+              }
+            ]
+          },
+          "downloadUrl": {
+            "type": "string",
+            "example": "/api/v1/media/1ebeb9d3-9225-4fc6-8dcf-ef8bc0709f85"
+          },
+          "infoUrl": {
+            "type": "string",
+            "example": "/api/v1/media/1ebeb9d3-9225-4fc6-8dcf-ef8bc0709f85/info"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "fileAvailable": {
+            "type": "boolean",
+            "example": true
+          }
+        },
+        "required": [
+          "mediaId",
+          "importId",
+          "ankiIndex",
+          "originalName",
+          "mimeType",
+          "sizeKb",
+          "type",
+          "downloadUrl",
+          "infoUrl",
+          "createdAt",
+          "fileAvailable"
+        ]
+      }
+    }
+  }
+}
