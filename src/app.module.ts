@@ -8,11 +8,19 @@ import { RequestLoggingInterceptor } from './common/interceptors/request-logging
 import { RequestLogService } from './common/services/request-log.service';
 import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
+import { ImportsModule } from './modules/imports/imports.module';
 import { ItemsModule } from './modules/items/items.module';
 import { UsersModule } from './modules/users/users.module';
 
 @Module({
-  imports: [PrismaModule, HealthModule, AuthModule, UsersModule, ItemsModule],
+  imports: [
+    PrismaModule,
+    HealthModule,
+    AuthModule,
+    UsersModule,
+    ItemsModule,
+    ImportsModule,
+  ],
   controllers: [AppController],
   providers: [
     RequestLogService,

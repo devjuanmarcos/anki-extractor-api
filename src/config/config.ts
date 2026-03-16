@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { isAbsolute, join, resolve } from 'node:path';
 import { loadEnvFile } from 'node:process';
 import { z } from 'zod';
 
@@ -47,6 +48,8 @@ const envSchema = z.object({
   JWT_REFRESH_TTL: z.string().min(1).default('7d'),
   SWAGGER_PATH: z.string().min(1).default('docs/swagger'),
   REDOC_PATH: z.string().min(1).default('docs'),
+  IMPORTS_TEMP_DIR: z.string().min(1).default('.tmp/anki-imports'),
+  MEDIA_STORAGE_DIR: z.string().min(1).default('.tmp/anki-media'),
 });
 
 const env = envSchema.parse(process.env);
@@ -60,6 +63,21 @@ function resolveCorsOrigin(value: string): true | string[] {
     .split(',')
     .map(item => item.trim())
     .filter(Boolean);
+}
+
+function resolveStoragePath(value: string): string {
+  return isAbsolute(value) ? value : resolve(process.cwd(), value);
+}
+
+const storage = {
+  importsTempDir: resolveStoragePath(env.IMPORTS_TEMP_DIR),
+  mediaDir: resolveStoragePath(env.MEDIA_STORAGE_DIR),
+};
+
+if (storage.importsTempDir === storage.mediaDir) {
+  throw new Error(
+    'IMPORTS_TEMP_DIR and MEDIA_STORAGE_DIR must point to different directories.',
+  );
 }
 
 export const config = {
@@ -88,5 +106,9 @@ export const config = {
   docs: {
     swaggerPath: env.SWAGGER_PATH,
     redocPath: env.REDOC_PATH,
+  },
+  storage: {
+    ...storage,
+    importsIncomingDir: join(storage.importsTempDir, 'incoming'),
   },
 } as const;
