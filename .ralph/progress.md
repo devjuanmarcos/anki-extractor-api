@@ -14,7 +14,7 @@ Run summary: D:/DEVJUANMARCOS/PROJETOS/KIKITO/anki-extractor-api/.ralph/runs/run
 - Guardrails reviewed: yes
 - No-commit run: false
 - Commit: `21fbc7b feat(imports): persist decks and note models`
-- Post-commit status: `.agents/tasks/prd-anki-extractor.json`, `.ralph/progress.md`, `.ralph/activity.log`, `.ralph/runs/run-20260316-102951-949-iter-1.md`
+- Post-commit status: `clean`
 - Verification:
   - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm prisma:generate` -> PASS
   - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm prisma:migrate` -> PASS
