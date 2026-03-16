@@ -6,6 +6,51 @@ Started: Mon, Mar 16, 2026 12:11:31 AM
 
 ---
 
+## [2026-03-16 10:24:14 -03:00] - US-002: Preparar dependencias e contrato de upload
+Thread: 
+Run: 20260316-101127-442 (iteration 1)
+Run log: D:/DEVJUANMARCOS/PROJETOS/KIKITO/anki-extractor-api/.ralph/runs/run-20260316-101127-442-iter-1.log
+Run summary: D:/DEVJUANMARCOS/PROJETOS/KIKITO/anki-extractor-api/.ralph/runs/run-20260316-101127-442-iter-1.md
+- Guardrails reviewed: yes
+- No-commit run: false
+- Commit: c6e35eb feat(imports): add upload intake contract
+- Post-commit status: `.agents/tasks/prd-anki-extractor.json`, `API Anki Extractor — Documentação Técnica.md` (pre-existing unrelated changes remained in the worktree)
+- Verification:
+  - Command: `pnpm prisma:generate` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm prisma:migrate` -> PASS
+  - Command: `pnpm lint` -> PASS
+  - Command: `pnpm build` -> PASS
+  - Command: `pnpm test` -> PASS
+  - Command: `pnpm test:e2e` -> PASS
+- Files changed:
+  - AGENTS.md
+  - package.json
+  - pnpm-lock.yaml
+  - src/app.module.ts
+  - src/config/config.ts
+  - src/modules/imports/dto/create-import.dto.ts
+  - src/modules/imports/dto/upload-import-file.dto.ts
+  - src/modules/imports/entities/import.entity.ts
+  - src/modules/imports/imports.controller.ts
+  - src/modules/imports/imports.module.ts
+  - src/modules/imports/imports.service.spec.ts
+  - src/modules/imports/imports.service.ts
+  - src/modules/imports/schemas/import.schema.ts
+  - test/imports.e2e-spec.ts
+  - .ralph/progress.md
+- What was implemented
+  - Installed the required upload/extraction dependencies and typings with the explicit `pnpm add` commands requested by the story.
+  - Added the initial `imports` module in the project pattern `controller -> dto/schema -> service -> prisma -> entity`.
+  - Exposed authenticated `POST /api/v1/imports` as `multipart/form-data` with Swagger documentation for the `file` field, `.apkg` requirement, success payload, and 400/401 responses.
+  - Validated missing files, empty files, and non-`.apkg` extensions before creating any `Import` record.
+  - Persisted an `Import` row with `PROCESSING` status and stored the uploaded archive under a dedicated temporary workspace separate from the permanent media directory.
+  - Added unit and e2e coverage for the success case and the three required 400 error paths.
+- **Learnings for future iterations:**
+  - Patterns discovered: the existing NestJS modules stay very lean, with DTO/schema validation kept close to the controller boundary and entity mapping kept in dedicated response classes.
+  - Gotchas encountered: Prisma CLI commands require `DATABASE_URL` in the shell when `.env` is absent, so that note was added to `AGENTS.md`.
+  - Useful context: using Multer disk storage plus a deterministic `source.apkg` workspace path avoids buffering uploads in memory and gives US-003 a stable handoff point for extraction.
+---
+
 ## [2026-03-16 00:25:37 -03:00] - US-001: Modelar banco local para imports do Anki
 Thread: 019cf4a1-d319-7c22-8feb-d8e90624e1f6
 Run: 20260316-001250-1081 (iteration 1)
