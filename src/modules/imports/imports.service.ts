@@ -4,6 +4,7 @@ import { copyFile, mkdir, rename, rm, stat } from 'node:fs/promises';
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -55,14 +56,14 @@ export class ImportsService {
   ) {}
 
   async create(rawDto: CreateImportDto): Promise<ImportEntity> {
-    await this.ensureStorageRoots();
-
     const dto = await this.validateCreateImportDto(rawDto);
     const originalName = basename(dto.originalName).trim();
 
     let importId: string | null = null;
 
     try {
+      await this.ensureStorageRoots();
+
       const createdImport = await this.prisma.import.create({
         data: {
           originalName,
@@ -108,22 +109,29 @@ export class ImportsService {
       return ImportEntity.fromRecord(createdImport);
     } catch (error) {
       if (importId) {
-        if (error instanceof InvalidAnkiPackageError) {
-          await this.failCreatedImport(importId, error.message);
-          throw new UnprocessableEntityException(error.message);
-        }
-
-        await this.rollbackCreatedImport(importId);
+        const normalizedFailure = this.normalizeImportCreationError(error);
+        await this.failCreatedImport(importId, normalizedFailure.failureReason);
+        this.logImportCreationFailure(
+          importId,
+          normalizedFailure.failureReason,
+          error,
+        );
+        throw normalizedFailure.exception;
       }
 
-      await this.safeRemovePath(dto.temporaryFilePath);
-
-      this.logger.error(
-        'Failed to prepare the import upload workspace.',
-        error instanceof Error ? error.stack : undefined,
+      this.logImportCreationFailure(
+        null,
+        'Failed to initialize the import processing workflow.',
+        error,
       );
-
       throw new InternalServerErrorException('Failed to store uploaded file.');
+    } finally {
+      await Promise.allSettled([
+        this.safeRemovePath(dto.temporaryFilePath),
+        importId
+          ? this.safeRemovePath(this.getWorkspacePath(importId))
+          : Promise.resolve(),
+      ]);
     }
   }
 
@@ -1223,14 +1231,6 @@ export class ImportsService {
     return join(this.getWorkspacePath(importId), 'source.apkg');
   }
 
-  private async rollbackCreatedImport(importId: string): Promise<void> {
-    await Promise.allSettled([
-      this.prisma.import.delete({ where: { id: importId } }),
-      this.safeRemovePath(this.getWorkspacePath(importId)),
-      this.safeRemovePath(this.getImportMediaPath(importId)),
-    ]);
-  }
-
   private async failCreatedImport(
     importId: string,
     failureReason: string,
@@ -1246,6 +1246,68 @@ export class ImportsService {
       this.safeRemovePath(this.getWorkspacePath(importId)),
       this.safeRemovePath(this.getImportMediaPath(importId)),
     ]);
+  }
+
+  private normalizeImportCreationError(error: unknown): {
+    failureReason: string;
+    exception: HttpException;
+  } {
+    if (error instanceof InvalidAnkiPackageError) {
+      return {
+        failureReason: error.message,
+        exception: new UnprocessableEntityException(error.message),
+      };
+    }
+
+    if (error instanceof HttpException) {
+      return {
+        failureReason: this.extractHttpExceptionMessage(error),
+        exception: error,
+      };
+    }
+
+    return {
+      failureReason: 'The import failed due to an unexpected internal error.',
+      exception: new InternalServerErrorException(
+        'Failed to process the uploaded .apkg file.',
+      ),
+    };
+  }
+
+  private extractHttpExceptionMessage(exception: HttpException): string {
+    const response = exception.getResponse();
+
+    if (typeof response === 'string') {
+      return response;
+    }
+
+    const message = (response as { message?: string | string[] }).message;
+
+    if (Array.isArray(message)) {
+      return message[0] ?? exception.message;
+    }
+
+    return typeof message === 'string' ? message : exception.message;
+  }
+
+  private logImportCreationFailure(
+    importId: string | null,
+    failureReason: string,
+    error: unknown,
+  ): void {
+    const context = importId
+      ? `Import ${importId} failed: ${failureReason}`
+      : failureReason;
+
+    if (error instanceof InvalidAnkiPackageError) {
+      this.logger.warn(context);
+      return;
+    }
+
+    this.logger.error(
+      context,
+      error instanceof Error ? error.stack : undefined,
+    );
   }
 
   private async removeImportArtifacts(importId: string): Promise<void> {

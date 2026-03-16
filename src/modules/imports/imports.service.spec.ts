@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
 import { BadRequestException } from '@nestjs/common';
 import AdmZip from 'adm-zip';
 import Database from 'better-sqlite3';
@@ -152,7 +152,7 @@ describe('ImportsService', () => {
     ]);
   });
 
-  it('creates a processing import, extracts the archive, and persists parsed notes and cards', async () => {
+  it('creates a processing import, persists parsed notes and cards, and removes the workspace', async () => {
     await mkdir(config.storage.importsIncomingDir, { recursive: true });
 
     const stagedFilePath = join(
@@ -332,22 +332,9 @@ describe('ImportsService', () => {
       },
     });
 
-    const storedFilePath = join(
-      config.storage.importsTempDir,
-      'import-1',
-      'source.apkg',
+    expect(existsSync(join(config.storage.importsTempDir, 'import-1'))).toBe(
+      false,
     );
-    const extractedPath = join(
-      config.storage.importsTempDir,
-      'import-1',
-      'extracted',
-    );
-
-    expect(existsSync(storedFilePath)).toBe(true);
-    expect(existsSync(join(extractedPath, 'collection.anki2'))).toBe(true);
-    expect(existsSync(join(extractedPath, 'media'))).toBe(true);
-    expect(existsSync(join(extractedPath, '0'))).toBe(true);
-    expect(existsSync(join(extractedPath, '1'))).toBe(true);
     expect(
       existsSync(join(config.storage.mediaDir, 'import-1', 'source.apkg')),
     ).toBe(false);
@@ -357,43 +344,6 @@ describe('ImportsService', () => {
     expect(
       existsSync(join(config.storage.mediaDir, 'import-1', '1-audio.mp3')),
     ).toBe(true);
-
-    const preparedSource =
-      await ankiPackageService.readPreparedImportSource('import-1');
-
-    expect(preparedSource.collectionFile.fileName).toBe('collection.anki2');
-    expect(basename(preparedSource.mediaMapPath!)).toBe('media');
-    expect(preparedSource.mediaFiles.map(file => file.index)).toEqual([
-      '0',
-      '1',
-    ]);
-    expect(preparedSource.raw.collection?.models).toContain(
-      'Basic (and reversed card)',
-    );
-    expect(preparedSource.raw.collection?.decks).toContain(
-      'English::Vocabulary::Advanced',
-    );
-    expect(preparedSource.raw.notes).toEqual([
-      expect.objectContaining({
-        id: 1,
-        mid: 20,
-        flds: 'Front text <img src="front.png">\x1fBack text with <b>HTML</b>\x1f[sound:audio.mp3]',
-      }),
-    ]);
-    expect(preparedSource.raw.cards).toEqual([
-      expect.objectContaining({
-        id: 10,
-        nid: 1,
-        did: 200,
-        ord: 0,
-      }),
-      expect.objectContaining({
-        id: 11,
-        nid: 1,
-        did: 200,
-        ord: 1,
-      }),
-    ]);
   });
 
   it('skips mapped media files that are missing from the package without failing the import', async () => {
@@ -474,6 +424,56 @@ describe('ImportsService', () => {
     expect(
       existsSync(join(config.storage.mediaDir, 'import-8', '1-audio.mp3')),
     ).toBe(false);
+    expect(existsSync(join(config.storage.importsTempDir, 'import-8'))).toBe(
+      false,
+    );
+  });
+
+  it('marks unexpected processing failures as failed and removes partial artifacts', async () => {
+    await mkdir(config.storage.importsIncomingDir, { recursive: true });
+
+    const stagedFilePath = join(
+      config.storage.importsIncomingDir,
+      'unexpected-failure.upload',
+    );
+
+    await writeApkgArchive(stagedFilePath);
+
+    prisma.import.create.mockResolvedValue({
+      id: 'import-unexpected',
+      originalName: 'unexpected-failure.apkg',
+      status: 'PROCESSING',
+    });
+    prisma.import.update.mockResolvedValue({
+      id: 'import-unexpected',
+      originalName: 'unexpected-failure.apkg',
+      status: 'FAILED',
+      failureReason: 'The import failed due to an unexpected internal error.',
+    });
+    prisma.$transaction.mockRejectedValueOnce(new Error('database offline'));
+
+    await expect(
+      service.create({
+        originalName: 'unexpected-failure.apkg',
+        size: 512,
+        temporaryFilePath: stagedFilePath,
+      }),
+    ).rejects.toThrow('Failed to process the uploaded .apkg file.');
+
+    expect(prisma.import.update).toHaveBeenCalledWith({
+      where: { id: 'import-unexpected' },
+      data: {
+        status: 'FAILED',
+        failureReason: 'The import failed due to an unexpected internal error.',
+      },
+    });
+    expect(prisma.import.delete).not.toHaveBeenCalled();
+    expect(
+      existsSync(join(config.storage.importsTempDir, 'import-unexpected')),
+    ).toBe(false);
+    expect(existsSync(join(config.storage.mediaDir, 'import-unexpected'))).toBe(
+      false,
+    );
   });
 
   it('marks the import as failed and removes the workspace when the archive has no collection file', async () => {

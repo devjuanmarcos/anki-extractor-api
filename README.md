@@ -1,8 +1,12 @@
-# NestJS Prisma API Template
+# Anki Extractor API
 
-Template generico de API com NestJS, Prisma e TypeScript, pronto para servir como base de novos projetos no GitHub.
+API em NestJS + Prisma para receber pacotes `.apkg` do Anki, extrair decks,
+modelos, notas, cards e midias, persistir o resultado em PostgreSQL local e
+expor consultas e exportacao JSON da importacao.
 
-Este repositorio foi limpo para remover o dominio antigo da aplicacao Biomob. Foram retiradas rotas, entidades e fluxos especificos como candidatos, cursos, aulas, empresas, filas e atendimento. No lugar disso, a base ficou enxuta e neutra, mantendo a arquitetura modular, autenticacao JWT, Prisma, validacao com Zod e documentacao OpenAPI.
+O projeto reutiliza a arquitetura modular da base NestJS original, com JWT,
+Zod, Prisma, Swagger e Redoc, mas o fluxo principal agora e o pipeline de
+importacao do Anki.
 
 ## Stack
 
@@ -16,16 +20,19 @@ Este repositorio foi limpo para remover o dominio antigo da aplicacao Biomob. Fo
 - Swagger e Redoc para documentacao de rotas
 - PostgreSQL como banco padrao
 
-## O que este template entrega
+## O que a API entrega
 
 - Prefixo global `/api`
 - Versionamento por URI com `/api/v1`
 - Rotas base para `health`, `auth` e `users`
+- Upload autenticado de arquivos `.apkg`
+- Persistencia relacional de imports, decks, modelos, notas, cards e midias
+- Exportacao JSON estruturada a partir dos dados persistidos
 - Autenticacao com access token e refresh token persistido em banco
 - Roles base `ADMIN` e `MEMBER`
 - Interceptor de logging de requests com persistencia opcional
 - Filtro global de excecoes
-- Prisma schema neutro com `User`, `RefreshToken` e `RequestLog`
+- Prisma schema com o dominio Anki e tabelas auxiliares da base
 - Documentacao pronta em Swagger e Redoc
 
 ## Rotas base
@@ -49,6 +56,20 @@ Este repositorio foi limpo para remover o dominio antigo da aplicacao Biomob. Fo
 - `GET /api/v1/items/:id`
 - `PATCH /api/v1/items/:id`
 - `DELETE /api/v1/items/:id`
+- `POST /api/v1/imports`
+- `GET /api/v1/imports`
+- `GET /api/v1/imports/:id`
+- `DELETE /api/v1/imports/:id`
+- `GET /api/v1/imports/:importId/decks`
+- `GET /api/v1/imports/:importId/notes`
+- `GET /api/v1/imports/:importId/cards`
+- `GET /api/v1/imports/:importId/media`
+- `GET /api/v1/imports/:importId/export`
+- `GET /api/v1/decks/:id`
+- `GET /api/v1/notes/:id`
+- `GET /api/v1/cards/:id`
+- `GET /api/v1/media/:id`
+- `GET /api/v1/media/:id/info`
 
 ## Estrutura principal
 
@@ -103,7 +124,7 @@ Resumo rapido:
 
 Detalhes em [docs/module-flow.md](docs/module-flow.md).
 
-## Como subir localmente
+## Desenvolvimento local
 
 1. Instale as dependencias:
 
@@ -111,9 +132,16 @@ Detalhes em [docs/module-flow.md](docs/module-flow.md).
 pnpm install
 ```
 
-2. Crie o arquivo `.env` com base em `.env.example`.
+2. Se o binding nativo do SQLite nao carregar apos a instalacao, reconstrua:
 
-3. Garanta um PostgreSQL local em `localhost:5432` com usuario `postgres`,
+```bash
+pnpm rebuild better-sqlite3
+```
+
+3. Crie o arquivo `.env` com base em `.env.example` ou exporte a URL do banco
+localmente.
+
+4. Garanta um PostgreSQL local em `localhost:5432` com usuario `postgres`,
 senha `2611` e um banco dedicado chamado `anki_extractor_local`.
 Nao use Docker para este fluxo. Um exemplo de SQL para preparar o banco e:
 
@@ -121,26 +149,39 @@ Nao use Docker para este fluxo. Um exemplo de SQL para preparar o banco e:
 CREATE DATABASE anki_extractor_local;
 ```
 
-4. Gere o client do Prisma:
+5. Configure `DATABASE_URL` para o banco local:
+
+PowerShell:
+
+```powershell
+$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'
+```
+
+Bash:
+
+```bash
+export DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'
+```
+
+6. Gere o client do Prisma:
 
 ```bash
 pnpm prisma:generate
 ```
 
-5. Aplique as migrations usando a URL local abaixo:
+7. Aplique as migrations:
 
 ```bash
-DATABASE_URL=postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public \
 pnpm prisma:migrate
 ```
 
-6. Popule o banco local com dados de teste:
+8. Popule o banco local com dados de teste:
 
 ```bash
 pnpm db:seed
 ```
 
-7. Suba a API:
+9. Suba a API:
 
 ```bash
 pnpm start:dev
@@ -154,6 +195,16 @@ pnpm start:dev
 - URL padrao: `postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public`
 - Fluxo esperado: PostgreSQL instalado localmente, sem comandos Docker para subir o banco
 - Comportamento de falha esperado: se o banco nao existir ou a senha estiver incorreta, `pnpm prisma:migrate` deve falhar com erro de conexao antes de aplicar estado parcial
+
+## Storage local
+
+- `IMPORTS_TEMP_DIR` controla o workspace temporario dos uploads.
+- `MEDIA_STORAGE_DIR` controla o storage permanente das midias extraidas.
+- Os valores padrao sao `.tmp/anki-imports` e `.tmp/anki-media`.
+- O workspace temporario e limpo tanto em sucesso quanto em falha; apenas as
+midias persistidas permanecem em `MEDIA_STORAGE_DIR/<importId>`.
+- Em desenvolvimento local, valide permissao de escrita nessas pastas antes de
+rodar upload ou `pnpm test:e2e`.
 
 ## Dominio Anki no Prisma
 
@@ -187,11 +238,17 @@ Com a aplicacao em execucao:
 - Redoc: `http://localhost:3000/docs`
 - Root metadata: `http://localhost:3000/api`
 
-## Testes e build
+## Verificacao
+
+Execute a sequencia abaixo sempre que alterar o pipeline de importacao ou a
+infra local:
 
 ```bash
+pnpm prisma:generate
+pnpm prisma:migrate
+pnpm lint
 pnpm build
-pnpm exec jest --runInBand
+pnpm test
 pnpm test:e2e
 ```
 

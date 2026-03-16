@@ -1,5 +1,5 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -75,7 +75,7 @@ describe('Imports API (e2e)', () => {
     await app.close();
   });
 
-  it('creates a processing import, extracts its files, and persists parsed notes and cards', async () => {
+  it('creates a processing import, persists parsed notes and cards, and removes temp files', async () => {
     const fileContents = await createApkgBuffer();
     const server = app.getHttpServer() as Parameters<typeof request>[0];
 
@@ -247,15 +247,7 @@ describe('Imports API (e2e)', () => {
     ]);
 
     const workspacePath = join(process.env.IMPORTS_TEMP_DIR!, body.importId);
-    const storedFilePath = join(workspacePath, 'source.apkg');
-    const extractedPath = join(workspacePath, 'extracted');
-
-    expect(existsSync(storedFilePath)).toBe(true);
-    expect(readFileSync(storedFilePath)).toEqual(fileContents);
-    expect(existsSync(join(extractedPath, 'collection.anki2'))).toBe(true);
-    expect(existsSync(join(extractedPath, 'media'))).toBe(true);
-    expect(existsSync(join(extractedPath, '0'))).toBe(true);
-    expect(existsSync(join(extractedPath, '1'))).toBe(true);
+    expect(existsSync(workspacePath)).toBe(false);
     expect(
       existsSync(
         join(process.env.MEDIA_STORAGE_DIR!, body.importId, 'source.apkg'),
@@ -677,7 +669,7 @@ describe('Imports API (e2e)', () => {
       createdImport.importId,
     );
 
-    expect(existsSync(workspacePath)).toBe(true);
+    expect(existsSync(workspacePath)).toBe(false);
     expect(existsSync(mediaPath)).toBe(true);
 
     await request(server)
@@ -1176,9 +1168,14 @@ describe('Imports API (e2e)', () => {
       .attach('file', fileContents, 'missing-collection.apkg')
       .expect(422);
 
-    expect((response.body as { message: string }).message).toBe(
-      'The .apkg package does not contain collection.anki2 or collection.anki21.',
-    );
+    expect(response.body).toMatchObject({
+      statusCode: 422,
+      message:
+        'The .apkg package does not contain collection.anki2 or collection.anki21.',
+      error: 'Unprocessable Entity',
+      path: '/api/v1/imports',
+      method: 'POST',
+    });
 
     const failedImport = await prisma.import.findFirst({
       where: { originalName: 'missing-collection.apkg' },
@@ -1200,6 +1197,44 @@ describe('Imports API (e2e)', () => {
     await expect(prisma.note.count()).resolves.toBe(0);
     await expect(prisma.card.count()).resolves.toBe(0);
     await expect(prisma.mediaFile.count()).resolves.toBe(0);
+  });
+
+  it('marks a corrupted .apkg as failed, returns a normalized 422 payload, and leaves no temp files', async () => {
+    const server = app.getHttpServer() as Parameters<typeof request>[0];
+    const fileContents = await createApkgBuffer({ corruptCollection: true });
+
+    const response = await request(server)
+      .post('/api/v1/imports')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .attach('file', fileContents, 'corrupt-collection.apkg')
+      .expect(422);
+
+    expect(response.body).toMatchObject({
+      statusCode: 422,
+      message:
+        'The .apkg package does not contain a readable Anki SQLite collection.',
+      error: 'Unprocessable Entity',
+      path: '/api/v1/imports',
+      method: 'POST',
+    });
+
+    const failedImport = await prisma.import.findFirst({
+      where: { originalName: 'corrupt-collection.apkg' },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    expect(failedImport).toMatchObject({
+      originalName: 'corrupt-collection.apkg',
+      status: 'FAILED',
+      failureReason:
+        'The .apkg package does not contain a readable Anki SQLite collection.',
+    });
+    expect(
+      existsSync(join(process.env.IMPORTS_TEMP_DIR!, failedImport!.id)),
+    ).toBe(false);
+    expect(
+      existsSync(join(process.env.MEDIA_STORAGE_DIR!, failedImport!.id)),
+    ).toBe(false);
   });
 
   it('marks the import as failed without persisting metadata when col.decks JSON is invalid', async () => {
@@ -1352,9 +1387,13 @@ describe('Imports API (e2e)', () => {
       .attach('file', Buffer.from('zip-data'), 'archive.zip')
       .expect(400);
 
-    expect((response.body as { message: string }).message).toBe(
-      'Only .apkg files are supported.',
-    );
+    expect(response.body).toMatchObject({
+      statusCode: 400,
+      message: 'Only .apkg files are supported.',
+      error: 'Bad Request',
+      path: '/api/v1/imports',
+      method: 'POST',
+    });
     await expect(prisma.import.count()).resolves.toBe(beforeCount);
   });
 });
@@ -1362,6 +1401,7 @@ describe('Imports API (e2e)', () => {
 async function createApkgBuffer(
   options: {
     withCollection?: boolean;
+    corruptCollection?: boolean;
     invalidModelsJson?: boolean;
     invalidDecksJson?: boolean;
     missingNoteModelReference?: boolean;
@@ -1376,12 +1416,18 @@ async function createApkgBuffer(
 
     if (options.withCollection !== false) {
       const collectionPath = join(fixtureRoot, 'collection.anki2');
-      createSqliteCollection(collectionPath, {
-        invalidModelsJson: options.invalidModelsJson,
-        invalidDecksJson: options.invalidDecksJson,
-        missingNoteModelReference: options.missingNoteModelReference,
-        missingCardDeckReference: options.missingCardDeckReference,
-      });
+
+      if (options.corruptCollection) {
+        await writeFile(collectionPath, Buffer.from('not-a-sqlite-file'));
+      } else {
+        createSqliteCollection(collectionPath, {
+          invalidModelsJson: options.invalidModelsJson,
+          invalidDecksJson: options.invalidDecksJson,
+          missingNoteModelReference: options.missingNoteModelReference,
+          missingCardDeckReference: options.missingCardDeckReference,
+        });
+      }
+
       zip.addLocalFile(collectionPath);
     }
 
