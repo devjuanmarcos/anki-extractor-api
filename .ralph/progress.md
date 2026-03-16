@@ -6,6 +6,46 @@ Started: Mon, Mar 16, 2026 12:11:31 AM
 
 ---
 
+## [2026-03-16 13:10:52 -03:00] - US-011: Concluir tratamento de erros, limpeza e verificacao
+Thread: 
+Run: 20260316-125833-1773 (iteration 1)
+Run log: D:/DEVJUANMARCOS/PROJETOS/KIKITO/anki-extractor-api/.ralph/runs/run-20260316-125833-1773-iter-1.log
+Run summary: D:/DEVJUANMARCOS/PROJETOS/KIKITO/anki-extractor-api/.ralph/runs/run-20260316-125833-1773-iter-1.md
+- Guardrails reviewed: yes
+- No-commit run: false
+- Commit: 128b955 fix(imports): finalize cleanup and failure handling
+- Post-commit status: `clean`
+- Verification:
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm prisma:generate` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm prisma:migrate` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm lint` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm build` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm test` -> PASS
+  - Command: `$env:DATABASE_URL='postgresql://postgres:2611@localhost:5432/anki_extractor_local?schema=public'; pnpm test:e2e` -> PASS
+- Files changed:
+  - .agents/tasks/prd-anki-extractor.json
+  - .ralph/runs/run-20260316-102951-949-iter-8.md
+  - README.md
+  - src/modules/imports/anki-package.service.spec.ts
+  - src/modules/imports/imports.service.spec.ts
+  - src/modules/imports/imports.service.ts
+  - test/imports.e2e-spec.ts
+  - .ralph/progress.md
+- What was implemented
+  - Updated `ImportsService.create` to always clean the temporary import workspace in `finally`, including successful imports and aborts after extraction has already started.
+  - Replaced destructive rollback of unexpected import failures with persisted `FAILED` imports carrying a normalized `failureReason`, while still cleaning partial media and returning standardized API errors.
+  - Added direct unit coverage for collection, note, and media parsing in `AnkiPackageService`.
+  - Expanded import e2e coverage for normalized 400/422 payloads, successful export flow, corrupted `.apkg` handling, and temp-directory cleanup expectations.
+  - Updated the README with the real local PostgreSQL setup, `DATABASE_URL` examples for PowerShell/Bash, local storage behavior, `better-sqlite3` rebuild guidance, and the required verification commands.
+- **Learnings for future iterations:**
+  - Patterns discovered
+    - After decks, notes, cards, and media are persisted, the import workspace can be deleted safely because export and query endpoints read only from PostgreSQL and permanent media storage.
+  - Gotchas encountered
+    - On this Windows PowerShell environment, the activity helper must be invoked as `ralph log "..."`; `./ralph` is not a valid local path.
+  - Useful context
+    - Normalizing unexpected failures to a generic persisted reason avoids leaking internals while still leaving a debuggable `FAILED` import record for operators.
+---
+
 ## [2026-03-16 12:50:03 -03:00] - US-010: Exportar o import como JSON estruturado
 Thread: 
 Run: 20260316-102951-949 (iteration 8)
